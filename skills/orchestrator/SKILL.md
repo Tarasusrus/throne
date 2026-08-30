@@ -32,6 +32,27 @@ plus a `cards` array per intent when you need to compute rather than read.
 The intent body itself is not in that output — read a specific intent with the `intent` skill when
 you need its full text.
 
+## Driving executors
+
+```bash
+skills/orchestrator/bin/throne-orchestrator run --intent <id>
+skills/orchestrator/bin/throne-orchestrator run --intent <id> --vendor claude --model opus
+skills/orchestrator/bin/throne-orchestrator stop --intent <id>
+```
+
+`run` starts an ordinary `work` session on a child intent of your tag: it previews the composition
+first and passes the assembled `system_prompt`/`user_prompt` into the spawn — the server does not
+assemble them on `run`, so skipping the preview would boot an executor with no rules and no task
+while still looking like success.
+
+An intent outside your tag is refused before any HTTP call. A live session is not a failure: `run`
+prints «уже работает» and exits 0. `stop` kills the session and is idempotent.
+
+Start executors **one at a time** and wait for each to come back. The spawn is synchronous (it waits
+for repository clones, up to five minutes) and the vendor trust file is shared, so parallel launches
+race. Every executor also gets its own workspace and its own clones — a pack of them costs disk and
+minutes, not just tokens.
+
 ## Editing your own body
 
 Your memory lives in your own `Intent.text` (ADR-0054): `## Зона`, `## Решения`, `## В работе`,

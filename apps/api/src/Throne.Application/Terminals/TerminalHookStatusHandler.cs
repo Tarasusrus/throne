@@ -74,11 +74,16 @@ public sealed class TerminalHookStatusHandler(IIntentRepository repository, SetI
     {
         TerminalRunModes.Work => IntentStatusNames.Work,
         TerminalRunModes.Free => IntentStatusNames.Work,
+        TerminalRunModes.Orchestrator => IntentStatusNames.Work,
         TerminalRunModes.Review => IntentStatusNames.Work,
         TerminalRunModes.Interview => IntentStatusNames.Interview,
         _ => null,
     };
 
     private static bool IsPhasedMode(string? mode) =>
-        mode is TerminalRunModes.Work or TerminalRunModes.Interview or TerminalRunModes.Review or TerminalRunModes.Free;
+        mode is TerminalRunModes.Work
+            or TerminalRunModes.Interview
+            or TerminalRunModes.Review
+            or TerminalRunModes.Free
+            or TerminalRunModes.Orchestrator;
 }

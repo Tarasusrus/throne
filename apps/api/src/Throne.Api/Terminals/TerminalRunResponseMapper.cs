@@ -86,6 +86,7 @@ internal static class TerminalRunResponseMapper
         TerminalRunMode.Review => TerminalRunModes.Review,
         TerminalRunMode.Dream => TerminalRunModes.Dream,
         TerminalRunMode.Free => TerminalRunModes.Free,
+        TerminalRunMode.Orchestrator => TerminalRunModes.Orchestrator,
         _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unknown terminal run mode '{mode}'."),
     };
 
@@ -96,6 +97,7 @@ internal static class TerminalRunResponseMapper
         TerminalRunModes.Review => TerminalRunMode.Review,
         TerminalRunModes.Dream => TerminalRunMode.Dream,
         TerminalRunModes.Free => TerminalRunMode.Free,
+        TerminalRunModes.Orchestrator => TerminalRunMode.Orchestrator,
         _ => throw new InvalidOperationException($"Unknown terminal run mode '{mode}'."),
     };
 

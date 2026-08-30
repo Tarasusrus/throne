@@ -5,6 +5,7 @@ namespace Throne.Application.Terminals;
 /// spawn phase the status hooks return to (ADR-0034/0035). The embedded contour injects the
 /// curated system/user context upfront rather than asking the agent to read a bundle;
 /// <see cref="Free"/> has no mandatory parts (the operator curates everything).
+/// <see cref="Orchestrator"/> drives a tag-wide intent from its own intent body (ADR-0054).
 /// </summary>
 public static class TerminalRunModes
 {
@@ -13,9 +14,10 @@ public static class TerminalRunModes
     public const string Review = "review";
     public const string Dream = "dream";
     public const string Free = "free";
+    public const string Orchestrator = "orchestrator";
 
-    public static readonly IReadOnlyList<string> All = [Interview, Review, Work, Free, Dream];
+    public static readonly IReadOnlyList<string> All = [Interview, Review, Work, Free, Dream, Orchestrator];
 
     public static bool IsKnown(string value) =>
-        value is Work or Interview or Review or Dream or Free;
+        value is Work or Interview or Review or Dream or Free or Orchestrator;
 }

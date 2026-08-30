@@ -76,7 +76,8 @@ export const TERMINAL_RUN_MODES: readonly TerminalRunMode[] = [
   "work",
   "review",
   "dream",
-  "free"
+  "free",
+  "orchestrator"
 ] as const;
 
 export const RUN_MODE_LABEL: Record<TerminalRunMode, string> = {
@@ -84,7 +85,8 @@ export const RUN_MODE_LABEL: Record<TerminalRunMode, string> = {
   interview: "Интервью",
   review: "Review",
   dream: "Рефлексия",
-  free: "Свободный"
+  free: "Свободный",
+  orchestrator: "Оркестратор"
 };
 
 /**

@@ -119,7 +119,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         PromptPartModeRoleDto: {
-            /** @description Embedded run mode (work | interview | review | free). */
+            /** @description Embedded run mode (work | interview | review | free | orchestrator). */
             mode: string;
             /** @description Role in the mode (mandatory | default_on | default_off). */
             role: string;

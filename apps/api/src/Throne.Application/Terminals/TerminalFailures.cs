@@ -17,7 +17,7 @@ internal static class TerminalFailures
     public static ApiException ModeInvalid(string mode) =>
         new(
             TerminalErrorCodes.ModeInvalid,
-            $"Unknown terminal run mode '{mode}'. Allowed: work | interview | review | dream | free.",
+            $"Unknown terminal run mode '{mode}'. Allowed: work | interview | review | dream | free | orchestrator.",
             new Dictionary<string, object?> { ["mode"] = mode });
 
     public static ApiException ReviewRequiresPullRequest(string mode, int count) =>

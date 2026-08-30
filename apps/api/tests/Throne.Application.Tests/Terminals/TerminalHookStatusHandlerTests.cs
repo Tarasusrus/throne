@@ -12,7 +12,7 @@ public class TerminalHookStatusHandlerTests
 {
     private static readonly DateTimeOffset Now = new(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
 
-    [Theory(DisplayName = "Stop и Notification в work/review/free/interview паркуют интент в awaiting_operator")]
+    [Theory(DisplayName = "Stop и Notification в work/review/free/interview/orchestrator паркуют интент в awaiting_operator")]
     [InlineData(TerminalHookEvents.Stop, TerminalRunModes.Work)]
     [InlineData(TerminalHookEvents.Stop, TerminalRunModes.Review)]
     [InlineData(TerminalHookEvents.Stop, TerminalRunModes.Free)]
@@ -21,6 +21,8 @@ public class TerminalHookStatusHandlerTests
     [InlineData(TerminalHookEvents.Notification, TerminalRunModes.Review)]
     [InlineData(TerminalHookEvents.Notification, TerminalRunModes.Free)]
     [InlineData(TerminalHookEvents.Notification, TerminalRunModes.Interview)]
+    [InlineData(TerminalHookEvents.Stop, TerminalRunModes.Orchestrator)]
+    [InlineData(TerminalHookEvents.Notification, TerminalRunModes.Orchestrator)]
     public async Task Park_events_set_awaiting_operator(string hookEvent, string mode)
     {
         var (repo, handler) = NewHandler(currentStatus: IntentStatusNames.Work);
@@ -39,6 +41,8 @@ public class TerminalHookStatusHandlerTests
     [InlineData(TerminalHookEvents.PostToolUse, TerminalRunModes.Review, IntentStatusNames.Work)]
     [InlineData(TerminalHookEvents.PostToolUse, TerminalRunModes.Free, IntentStatusNames.Work)]
     [InlineData(TerminalHookEvents.PostToolUse, TerminalRunModes.Interview, IntentStatusNames.Interview)]
+    [InlineData(TerminalHookEvents.UserPromptSubmit, TerminalRunModes.Orchestrator, IntentStatusNames.Work)]
+    [InlineData(TerminalHookEvents.PostToolUse, TerminalRunModes.Orchestrator, IntentStatusNames.Work)]
     public async Task Resume_events_return_to_spawn_phase(string hookEvent, string mode, string expected)
     {
         var (repo, handler) = NewHandler(currentStatus: IntentStatusNames.AwaitingOperator);

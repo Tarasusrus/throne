@@ -295,7 +295,7 @@ paths:
         `Notification` (a permission prompt blocks the agent without ending the turn, so no
         `Stop` fires; Claude scopes it to `permission_prompt` via matcher, OpenCode maps
         `permission.asked`) — and two return it to the spawn phase
-        (`work`/`review`/`free` → `work`, `interview` → `interview`):
+        (`work`/`review`/`free`/`orchestrator` → `work`, `interview` → `interview`):
         `UserPromptSubmit` (operator answered) and `PostToolUse` (agent resumed after an
         approval, which is not a `UserPromptSubmit`). OpenCode maps `session.idle`,
         `tui.prompt.append`, `permission.replied`, and `tool.execute.after` onto those Throne
@@ -345,7 +345,7 @@ paths:
         block (mandatory + selected optional) destined for `--append-system-prompt`;
         `user_prompt` is the intent body draft for the task zone. The frontend renders the
         pre-flight modal from this response and never assembles the runtime prompt itself.
-        Only embedded modes `work`/`interview`/`review`/`free` are surfaced in the intent UI.
+        Only embedded modes `work`/`interview`/`review`/`free`/`orchestrator` are surfaced in the intent UI.
         `review` additionally requires at least one attached PR/MR on the intent; when more
         than one is attached, `run` receives the chosen `review_binding_id`.
       parameters:
@@ -559,9 +559,10 @@ components:
         - review
         - dream
         - free
+        - orchestrator
       description: >
         Embedded run mode. Drives which mandatory parts the pre-flight preview projects
-        (`work`/`interview`/`review` from the matching manifest bundle; `free` curates everything by hand)
+        (`work`/`interview`/`review`/`orchestrator` from the matching manifest bundle; `free` curates everything by hand)
         and the spawn phase the status hooks return to. The embedded contour injects the
         operator-curated `system_prompt`/`user_prompt` upfront (ADR-0034) — it does not ask the
         agent to read a bundle. Session skills are selected separately in the launch

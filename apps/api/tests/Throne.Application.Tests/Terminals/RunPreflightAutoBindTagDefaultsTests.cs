@@ -21,6 +21,15 @@ public partial class RunPreflightOrchestratorTests
 {
     private static readonly TagId TagOnIntent = TagId.New();
 
+    /// <summary>Провайдер резолвится и авторизован — иначе auto-bind падает до вставки.</summary>
+    private static IGitProvider AuthenticatedGitHubProvider()
+    {
+        var provider = Substitute.For<IGitProvider>();
+        provider.GetAuthStatusAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ProviderAuthStatus(GitProviderNames.GitHub, IsAuthenticated: true)));
+        return provider;
+    }
+
     private static readonly TagDefaultRepository JobHuntDefault =
         new(new RepoCoordinate(GitProviderNames.GitHub, "octo", "hello"), "main");
 
@@ -28,8 +37,6 @@ public partial class RunPreflightOrchestratorTests
     public async Task Run_binds_repository_from_tag_defaults()
     {
         var fixture = new Fixture()
-            .WithAuthenticatedProvider()
-            .WithBindingInsertSucceeding()
             .Setup(
                 capabilityEnabled: true,
                 intentExists: true,
@@ -53,8 +60,6 @@ public partial class RunPreflightOrchestratorTests
     public async Task Run_binds_nothing_when_tag_defaults_empty()
     {
         var fixture = new Fixture()
-            .WithAuthenticatedProvider()
-            .WithBindingInsertSucceeding()
             .Setup(
                 capabilityEnabled: true,
                 intentExists: true,

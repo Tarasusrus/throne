@@ -17,7 +17,8 @@ export const PROMPT_PART_MODES = [
   "work",
   "interview",
   "review",
-  "free"
+  "free",
+  "orchestrator"
 ] as const;
 export type PromptPartMode = (typeof PROMPT_PART_MODES)[number];
 
@@ -25,7 +26,8 @@ export const PROMPT_PART_MODE_LABELS: Record<PromptPartMode, string> = {
   work: "Работа",
   interview: "Интервью",
   review: "Review",
-  free: "Свободный"
+  free: "Свободный",
+  orchestrator: "Оркестратор"
 };
 
 /** Backend roles plus the UI-only "none" (part has no role in the mode). */

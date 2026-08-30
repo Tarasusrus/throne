@@ -171,25 +171,6 @@ public partial class RunPreflightOrchestratorTests
         public IIntentTerminalLaunchStore LaunchStore { get; }
         public RunPreflightOrchestrator Orchestrator { get; }
 
-        /// <summary>Провайдер найден в реестре и авторизован — иначе BindAsync падает до вставки.</summary>
-        public Fixture WithAuthenticatedProvider()
-        {
-            var provider = Substitute.For<IGitProvider>();
-            provider.GetAuthStatusAsync(Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult(
-                    new ProviderAuthStatus(GitProviderNames.GitHub, IsAuthenticated: true)));
-            Providers.GetByName(Arg.Any<string>()).Returns(provider);
-            return this;
-        }
-
-        public Fixture WithBindingInsertSucceeding()
-        {
-            Bindings.CreateAsync(Arg.Any<IntentRepositoryBinding>(), Arg.Any<CancellationToken>())
-                .Returns(ci => Task.FromResult<CreateBindingOutcome>(
-                    new CreateBindingOutcome.Created(ci.ArgAt<IntentRepositoryBinding>(0))));
-            return this;
-        }
-
         public Fixture Setup(
             bool capabilityEnabled = false,
             bool intentExists = false,
@@ -201,9 +182,16 @@ public partial class RunPreflightOrchestratorTests
             var tagIds = tagDefaults is null ? [] : new[] { TagOnIntent };
             if (tagDefaults is not null)
             {
+                // Тег с дефолтами тянет за собой весь путь auto-bind: провайдер обязан
+                // резолвиться и быть авторизован, иначе BindAsync падает до вставки.
                 Tags.GetByIdAsync(Arg.Any<TagId>(), Arg.Any<CancellationToken>())
                     .Returns(Task.FromResult<Tag?>(
                         Tag.Restore(TagOnIntent, "job-hunt", 1, Now, Now, tagDefaults)));
+                var provider = AuthenticatedGitHubProvider();
+                Providers.GetByName(Arg.Any<string>()).Returns(provider);
+                Bindings.CreateAsync(Arg.Any<IntentRepositoryBinding>(), Arg.Any<CancellationToken>())
+                    .Returns(ci => Task.FromResult<CreateBindingOutcome>(
+                        new CreateBindingOutcome.Created(ci.ArgAt<IntentRepositoryBinding>(0))));
             }
 
             // tmux is no longer a carrier capability — the guard reads the detection cache

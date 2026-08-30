@@ -286,7 +286,7 @@ namespace Throne.Terminal.Contracts.Generated
     }
 
     /// <summary>
-    /// Embedded run mode. Drives which mandatory parts the pre-flight preview projects (`work`/`interview`/`review` from the matching manifest bundle; `free` curates everything by hand) and the spawn phase the status hooks return to. The embedded contour injects the operator-curated `system_prompt`/`user_prompt` upfront (ADR-0034) — it does not ask the agent to read a bundle. Session skills are selected separately in the launch window and materialised only when their spawn identity is available.
+    /// Embedded run mode. Drives which mandatory parts the pre-flight preview projects (`work`/`interview`/`review`/`orchestrator` from the matching manifest bundle; `free` curates everything by hand) and the spawn phase the status hooks return to. The embedded contour injects the operator-curated `system_prompt`/`user_prompt` upfront (ADR-0034) — it does not ask the agent to read a bundle. Session skills are selected separately in the launch window and materialised only when their spawn identity is available.
     /// <br/>
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.7.1.0 (NJsonSchema v11.6.1.0 (Newtonsoft.Json v13.0.0.0))")]
@@ -312,6 +312,10 @@ namespace Throne.Terminal.Contracts.Generated
         [System.Text.Json.Serialization.JsonStringEnumMemberName(@"free")]
         [System.Runtime.Serialization.EnumMember(Value = @"free")]
         Free = 4,
+
+        [System.Text.Json.Serialization.JsonStringEnumMemberName(@"orchestrator")]
+        [System.Runtime.Serialization.EnumMember(Value = @"orchestrator")]
+        Orchestrator = 5,
 
     }
 

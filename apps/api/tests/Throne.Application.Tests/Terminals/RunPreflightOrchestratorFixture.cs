@@ -49,6 +49,7 @@ public partial class RunPreflightOrchestratorTests
             Detection = Substitute.For<ICapabilityDetectionCache>();
             Bindings = Substitute.For<IIntentRepositoryBindingRepository>();
             Tags = Substitute.For<ITagRepository>();
+            Providers = Substitute.For<IGitProviderRegistry>();
             Tmux = Substitute.For<ITmuxSessionManager>();
             var workspace = new StubWorkspaceRoot(WorkspaceRoot);
             var clock = new FixedClock(Now);
@@ -81,7 +82,7 @@ public partial class RunPreflightOrchestratorTests
         private (RepositoryBindingService Service, IRepositoryCloneRequests CloneQueue) BuildBindingService(
             IWorkspaceRootProvider workspace, TimeProvider clock, IUnitOfWork uow)
         {
-            var resolver = new RepositoryBindingResolver(Intents, Bindings, Substitute.For<IGitProviderRegistry>());
+            var resolver = new RepositoryBindingResolver(Intents, Bindings, Providers);
             var persistence = new RepositoryBindingPersistence(
                 Bindings, Substitute.For<IRepositoryRegistry>(), uow, clock, workspace,
                 Substitute.For<IWorkspaceDirectoryRemover>(),
@@ -164,18 +165,47 @@ public partial class RunPreflightOrchestratorTests
         public ICapabilityDetectionCache Detection { get; }
         public IIntentRepositoryBindingRepository Bindings { get; }
         public ITagRepository Tags { get; }
+        public IGitProviderRegistry Providers { get; }
         public ITmuxSessionManager Tmux { get; }
         public IRunPreflightPromptDelivery Delivery { get; private set; } = default!;
         public IIntentTerminalLaunchStore LaunchStore { get; }
         public RunPreflightOrchestrator Orchestrator { get; }
+
+        /// <summary>Провайдер найден в реестре и авторизован — иначе BindAsync падает до вставки.</summary>
+        public Fixture WithAuthenticatedProvider()
+        {
+            var provider = Substitute.For<IGitProvider>();
+            provider.GetAuthStatusAsync(Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult(
+                    new ProviderAuthStatus(GitProviderNames.GitHub, IsAuthenticated: true)));
+            Providers.GetByName(Arg.Any<string>()).Returns(provider);
+            return this;
+        }
+
+        public Fixture WithBindingInsertSucceeding()
+        {
+            Bindings.CreateAsync(Arg.Any<IntentRepositoryBinding>(), Arg.Any<CancellationToken>())
+                .Returns(ci => Task.FromResult<CreateBindingOutcome>(
+                    new CreateBindingOutcome.Created(ci.ArgAt<IntentRepositoryBinding>(0))));
+            return this;
+        }
 
         public Fixture Setup(
             bool capabilityEnabled = false,
             bool intentExists = false,
             bool? hasSession = null,
             IReadOnlyList<IntentRepositoryBinding>? bindings = null,
-            TmuxSpawnResult? spawn = null)
+            TmuxSpawnResult? spawn = null,
+            IReadOnlyList<TagDefaultRepository>? tagDefaults = null)
         {
+            var tagIds = tagDefaults is null ? [] : new[] { TagOnIntent };
+            if (tagDefaults is not null)
+            {
+                Tags.GetByIdAsync(Arg.Any<TagId>(), Arg.Any<CancellationToken>())
+                    .Returns(Task.FromResult<Tag?>(
+                        Tag.Restore(TagOnIntent, "job-hunt", 1, Now, Now, tagDefaults)));
+            }
+
             // tmux is no longer a carrier capability — the guard reads the detection cache
             // directly. capabilityEnabled mimics «tmux detected» on the host.
             Detection.GetAsync("tmux", Arg.Any<CancellationToken>())
@@ -185,7 +215,7 @@ public partial class RunPreflightOrchestratorTests
             if (intentExists)
             {
                 var intent = Intent.Restore(
-                    new IntentId(IntentIdValue), "x", IntentStatusNames.Work, 1, [], Now, Now);
+                    new IntentId(IntentIdValue), "x", IntentStatusNames.Work, 1, tagIds, Now, Now);
                 Intents.GetByIdAsync(Arg.Is<IntentId>(i => i.Value == IntentIdValue), Arg.Any<CancellationToken>())
                     .Returns(intent);
                 Intents.SetStatusAsync(

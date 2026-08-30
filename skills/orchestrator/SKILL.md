@@ -53,6 +53,25 @@ for repository clones, up to five minutes) and the vendor trust file is shared, 
 race. Every executor also gets its own workspace and its own clones — a pack of them costs disk and
 minutes, not just tokens.
 
+## Watching them
+
+```bash
+skills/orchestrator/bin/throne-orchestrator watch
+skills/orchestrator/bin/throne-orchestrator watch --wait --timeout 600
+```
+
+Plain `watch` is an instant picture: who has a live session, who is parked in `awaiting_operator`.
+`--wait` blocks until the first change and reports the delta — a status move, or a session that
+vanished without one (an executor that died silently). It never waits past `--timeout` (default 600
+seconds, hard cap 900), and a timeout is not an error: it prints that nothing moved.
+
+There is no background watching in this contour. When your turn ends, Throne parks you in
+`awaiting_operator` and nothing wakes you up — so either wait inside the turn with `--wait`, or take
+the snapshot, report to the operator, and let them re-prompt you. Do not promise the operator that
+you will «keep an eye on it» after the turn ends.
+
+`watch` only reads. It never changes a status or touches a session.
+
 ## Editing your own body
 
 Your memory lives in your own `Intent.text` (ADR-0054): `## Зона`, `## Решения`, `## В работе`,

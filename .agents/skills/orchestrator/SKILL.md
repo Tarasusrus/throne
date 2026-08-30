@@ -12,7 +12,8 @@ the constraints — they are not duplicated here so the two never drift.
 First check that your own intent body starts with `[ORCH]`; if it does not, stop and report to the
 operator rather than acting on a foreign tag. Then `list` shows the intents of your tag with their
 statuses and attached tracker cards, and `run` / `stop` drive executors on them — one at a time,
-because the spawn is synchronous and the vendor trust file is shared. The script degrades gracefully: `THRONE_API_BASE` defaults to
+because the spawn is synchronous and the vendor trust file is shared. `watch` reports who moved;
+with `--wait` it blocks inside the turn, because this contour has no background watching at all. The script degrades gracefully: `THRONE_API_BASE` defaults to
 the local backend `http://localhost:5008`, while an unset `THRONE_INTENT_ID` means there is no
 orchestrator intent to resolve a tag from — the command refuses instead of guessing. See
 `skills/orchestrator/SKILL.md` for the full picture.

@@ -26,6 +26,7 @@ internal static class TerminalSpawnTestDoubles
             SessionSkillDescriptors.Intent,
             SessionSkillDescriptors.Review,
             SessionSkillDescriptors.Dream,
+            SessionSkillDescriptors.Orchestrator,
         ]);
 
     public static RunPreflightWorkspacePreparer EmptyWorkspacePreparer() =>

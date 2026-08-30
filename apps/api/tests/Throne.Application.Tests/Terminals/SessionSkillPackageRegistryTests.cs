@@ -43,6 +43,19 @@ public class SessionSkillPackageRegistryTests
         packages.Should().Equal(new DreamSessionSkillPackage());
     }
 
+    [Theory(DisplayName = "Orchestrator skill материализуется для любого vendor")]
+    [InlineData(TerminalAgentCatalog.VendorClaude)]
+    [InlineData(TerminalAgentCatalog.VendorCodex)]
+    [InlineData(TerminalAgentCatalog.VendorOpencode)]
+    public void Selected_orchestrator_resolves_for_every_vendor(string vendor)
+    {
+        var registry = NewRegistry();
+        var packages = registry.Resolve(new SessionSkillPackageResolution(
+            "intent-1", vendor, [SessionSkillPackageIds.Orchestrator], ReviewArtifact: null));
+
+        packages.Should().Equal(new OrchestratorSessionSkillPackage());
+    }
+
     [Fact(DisplayName = "Невыбранные скилы не материализуются")]
     public void Unselected_skills_resolve_no_packages()
     {

@@ -35,4 +35,12 @@ public static class SessionSkillDescriptors
         "Dream sources, sessions и PromptPartPatch proposals через CLI.",
         DefaultModes: [TerminalRunModes.Dream],
         CreatePackage: static _ => new DreamSessionSkillPackage());
+
+    public static readonly SessionSkillDescriptor Orchestrator = new(
+        SessionSkillPackageIds.Orchestrator,
+        SessionSkillPackageSources.Throne,
+        "Orchestrator",
+        "Обзор интентов своего тега и управление исполнителями на них.",
+        DefaultModes: [TerminalRunModes.Orchestrator],
+        CreatePackage: static _ => new OrchestratorSessionSkillPackage());
 }

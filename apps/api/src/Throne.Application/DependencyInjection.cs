@@ -137,6 +137,7 @@ public static class DependencyInjection
         services.AddSingleton(SessionSkillDescriptors.Intent);
         services.AddSingleton(SessionSkillDescriptors.Review);
         services.AddSingleton(SessionSkillDescriptors.Dream);
+        services.AddSingleton(SessionSkillDescriptors.Orchestrator);
         services.AddSingleton<ISessionSkillCatalog, SessionSkillCatalog>();
         services.AddSingleton<SessionSkillPackageRegistry>();
         services.AddSingleton<SessionSkillSelectionService>();

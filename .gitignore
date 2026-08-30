@@ -41,3 +41,6 @@ dist/
 
 local
 *.lscache
+
+# Лог локального дев-запуска (./throne -p 5009), не артефакт репозитория.
+throne-dev.log

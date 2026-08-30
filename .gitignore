@@ -2,6 +2,8 @@
 bin/
 !/bin/
 !/bin/throne-*
+# CLI операционных скиллов — не сборочный вывод, а исходники (ADR-0043).
+!skills/*/bin/
 obj/
 out/
 *.user

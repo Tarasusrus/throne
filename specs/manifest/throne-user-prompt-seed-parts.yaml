@@ -26,6 +26,7 @@ seed_parts:
       - { mode: review,    role: mandatory, order: 1 }
       - { mode: dream,     role: mandatory, order: 1 }
       - { mode: free,      role: mandatory, order: 1 }
+      - { mode: orchestrator, role: mandatory, order: 1 }
     text: |
       Веди диалог на языке оператора
 

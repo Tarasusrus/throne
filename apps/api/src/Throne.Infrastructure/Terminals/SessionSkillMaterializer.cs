@@ -215,7 +215,8 @@ internal sealed class SessionSkillMaterializer : ISessionSkillMaterializer
     private static bool HasSkillSources(string dir) =>
         HasSkillSource(dir, SessionSkillPackageIds.Intent, "throne-intent")
         && HasSkillSource(dir, SessionSkillPackageIds.Review, "throne-review")
-        && HasSkillSource(dir, SessionSkillPackageIds.Dream, "throne-dream");
+        && HasSkillSource(dir, SessionSkillPackageIds.Dream, "throne-dream")
+        && HasSkillSource(dir, SessionSkillPackageIds.Orchestrator, "throne-orchestrator");
 
     private static bool HasSkillSource(string dir, string skillId, string binName) =>
         File.Exists(Path.Combine(dir, "skills", skillId, "SKILL.md"))

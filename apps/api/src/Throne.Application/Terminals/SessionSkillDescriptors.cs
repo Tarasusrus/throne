@@ -13,7 +13,9 @@ public static class SessionSkillDescriptors
         SessionSkillPackageSources.Throne,
         "Intent",
         "Правка Intent.text и создание/линковка дочерних интентов.",
-        DefaultModes: [TerminalRunModes.Interview],
+        // orchestrator пишет журнал решений в собственный Intent.text (ADR-0054 §4) —
+        // без этого скилла у режима нет write-path к своей же памяти.
+        DefaultModes: [TerminalRunModes.Interview, TerminalRunModes.Orchestrator],
         CreatePackage: static _ => new IntentSessionSkillPackage());
 
     public static readonly SessionSkillDescriptor Review = new(

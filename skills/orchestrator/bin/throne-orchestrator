@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INTENT_ID="${THRONE_INTENT_ID:-}"
+API_BASE="${THRONE_API_BASE:-http://localhost:5008}"
+API_BASE="${API_BASE%/}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  throne-orchestrator list [--status STATUS]... [--json]
+  throne-orchestrator run --intent ID [--vendor V] [--model M]
+  throne-orchestrator stop --intent ID
+  throne-orchestrator watch [--wait] [--timeout SECONDS]
+
+list — интенты тега текущего интента: id, статус, заголовок, карточки трекера.
+Тег берётся из собственного интента, аргументом его не задают.
+
+run — поднять work-сессию исполнителя на интенте своего тега. Сначала preview
+(сервер сам контекст не собирает), потом run с собранным промптом. Живая сессия —
+не ошибка: команда сообщает «уже работает» и выходит с кодом 0.
+
+stop — погасить сессию исполнителя. Идемпотентно.
+
+watch — картина по исполнителям: у кого живая сессия, кто ушёл в awaiting_operator
+или done. Без флагов — мгновенный срез. С --wait ждёт первого изменения, но не
+дольше --timeout (по умолчанию 600 с, потолок 900 с): фонового наблюдения контур
+не даёт, ожидание живёт внутри хода. Истёкший таймаут — не ошибка.
+USAGE
+}
+
+die() {
+  echo "throne-orchestrator: $*" >&2
+  exit 64
+}
+
+require_intent() {
+  [[ -n "${INTENT_ID}" ]] || die "THRONE_INTENT_ID is required"
+}
+
+# Клон репозиториев тега ждётся синхронно (CloneWaitSeconds = 300 на сервере),
+# поэтому клиентский таймаут обязан быть заведомо больше серверного ожидания.
+RUN_MAX_TIME=420
+
+http_post() {
+  local path="$1" body="$2" tmp status
+  tmp="$(mktemp)"
+  if ! status="$(printf '%s' "${body}" | curl -sS -o "${tmp}" -w '%{http_code}' \
+    --max-time "${RUN_MAX_TIME}" \
+    -X POST "${API_BASE}${path}" -H 'Content-Type: application/json' --data-binary @-)"; then
+    rm -f "${tmp}"
+    echo "throne-orchestrator: curl оборвался на POST ${path} (таймаут ${RUN_MAX_TIME}s)" >&2
+    exit 1
+  fi
+  HTTP_STATUS="${status}"
+  HTTP_BODY="$(cat "${tmp}")"
+  rm -f "${tmp}"
+}
+
+http_post_or_fail() {
+  http_post "$1" "$2"
+  if [[ ! "${HTTP_STATUS}" =~ ^2 ]]; then
+    printf '%s\n' "${HTTP_BODY}" >&2
+    echo "throne-orchestrator: POST $1 failed with HTTP ${HTTP_STATUS}" >&2
+    exit 1
+  fi
+}
+
+http_get() {
+  local path="$1" tmp status
+  tmp="$(mktemp)"
+  if ! status="$(curl -sS -o "${tmp}" -w '%{http_code}' "${API_BASE}${path}")"; then
+    rm -f "${tmp}"
+    echo "throne-orchestrator: curl failed for GET ${path}" >&2
+    exit 1
+  fi
+  HTTP_STATUS="${status}"
+  HTTP_BODY="$(cat "${tmp}")"
+  rm -f "${tmp}"
+  if [[ ! "${HTTP_STATUS}" =~ ^2 ]]; then
+    printf '%s\n' "${HTTP_BODY}" >&2
+    echo "throne-orchestrator: GET ${path} failed with HTTP ${HTTP_STATUS}" >&2
+    exit 1
+  fi
+}
+
+# Тег собственного интента — единственный источник скоупа. Несколько тегов на
+# интенте оркестратора — ошибка постановки, а не повод молча взять первый.
+own_tag() {
+  require_intent
+  http_get "/api/v1/intents/${INTENT_ID}"
+  printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" own-tag
+}
+
+cmd_list() {
+  local json=0
+  local -a statuses=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status) [[ $# -ge 2 ]] || die "--status requires a value"; statuses+=("$2"); shift 2 ;;
+      --json) json=1; shift ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+
+  local tag query
+  tag="$(own_tag)"
+  query="$(python3 "${HERE}/_orchestrator.py" list-query "${tag}" "${statuses[@]+"${statuses[@]}"}")"
+
+  http_get "/api/v1/intents?${query}"
+  local page="${HTTP_BODY}"
+
+  # Карточки трекера лежат отдельным ресурсом на интенте (ADR-0052) — в списке их нет.
+  local cards_dir id
+  cards_dir="$(mktemp -d)"
+  for id in $(printf '%s' "${page}" | python3 "${HERE}/_orchestrator.py" ids); do
+    http_get "/api/v1/intents/${id}/task-tracker/cards"
+    printf '%s' "${HTTP_BODY}" > "${cards_dir}/${id}.json"
+  done
+
+  local render="render"
+  [[ ${json} -eq 1 ]] && render="render-json"
+  printf '%s' "${page}" | python3 "${HERE}/_orchestrator.py" "${render}" "${cards_dir}"
+  rm -rf "${cards_dir}"
+}
+
+# Гард скоупа — клиентский: сервер разрешает запуск на любом интенте (ADR-0029,
+# owner-оси нет). Дисциплину «только свой тег» держит эта проверка.
+assert_own_tag() {
+  local target="$1" tag
+  tag="$(own_tag)"
+  http_get "/api/v1/intents/${target}"
+  printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" assert-tag "${tag}" "${target}"
+}
+
+cmd_run() {
+  local target="" vendor="" model=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --intent) [[ $# -ge 2 ]] || die "--intent requires a value"; target="$2"; shift 2 ;;
+      --vendor) [[ $# -ge 2 ]] || die "--vendor requires a value"; vendor="$2"; shift 2 ;;
+      --model) [[ $# -ge 2 ]] || die "--model requires a value"; model="$2"; shift 2 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -n "${target}" ]] || die "run requires --intent ID"
+  assert_own_tag "${target}"
+
+  # Сервер не собирает system_prompt на run: без preview исполнитель стартует без
+  # правил и без задачи, и это выглядит успехом. Поэтому preview обязателен.
+  http_post_or_fail "/api/v1/intents/${target}/terminal/preview" '{"mode":"work"}'
+  local payload
+  payload="$(printf '%s' "${HTTP_BODY}" \
+    | python3 "${HERE}/_orchestrator.py" run-payload "${vendor}" "${model}")"
+
+  http_post "/api/v1/intents/${target}/terminal/run" "${payload}"
+  if [[ "${HTTP_STATUS}" == "409" ]]; then
+    if printf '%s' "${HTTP_BODY}" | grep -q "session_already_running"; then
+      echo "${target}: сессия уже работает"
+      return 0
+    fi
+    printf '%s\n' "${HTTP_BODY}" >&2
+    die "конфликт версии текста интента ${target} — перечитай интент и повтори"
+  fi
+  if [[ ! "${HTTP_STATUS}" =~ ^2 ]]; then
+    printf '%s\n' "${HTTP_BODY}" >&2
+    echo "throne-orchestrator: run на ${target} failed with HTTP ${HTTP_STATUS}" >&2
+    exit 1
+  fi
+  printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" run-result "${target}"
+}
+
+cmd_stop() {
+  local target=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --intent) [[ $# -ge 2 ]] || die "--intent requires a value"; target="$2"; shift 2 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -n "${target}" ]] || die "stop requires --intent ID"
+  assert_own_tag "${target}"
+
+  http_post_or_fail "/api/v1/intents/${target}/terminal/kill" '{}'
+  echo "${target}: сессия погашена"
+}
+
+# Только чтение: watch не двигает ни статусы, ни сессии.
+watch_snapshot() {
+  local tag="$1" running page query
+  # Тот же urlencode, что и в list: сырая интерполяция тега молча портит запрос.
+  query="$(python3 "${HERE}/_orchestrator.py" list-query "${tag}")"
+  http_get "/api/v1/intents?${query}&terminal_running=true"
+  running="${HTTP_BODY}"
+  http_get "/api/v1/intents?${query}"
+  page="${HTTP_BODY}"
+  printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" watch-snapshot
+}
+
+cmd_watch() {
+  local wait=0 timeout=600
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --wait) wait=1; shift ;;
+      --timeout) [[ $# -ge 2 ]] || die "--timeout requires a value"; timeout="$2"; shift 2 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+  [[ "${timeout}" =~ ^[0-9]+$ ]] || die "--timeout expects seconds"
+  (( timeout > 900 )) && timeout=900
+
+  local tag baseline current waited=0
+  tag="$(own_tag)"
+  baseline="$(watch_snapshot "${tag}")"
+
+  if [[ ${wait} -eq 0 ]]; then
+    printf '%s' "${baseline}" | python3 "${HERE}/_orchestrator.py" watch-render
+    return 0
+  fi
+
+  while (( waited < timeout )); do
+    sleep 15
+    waited=$(( waited + 15 ))
+    current="$(watch_snapshot "${tag}")"
+    if [[ "${current}" != "${baseline}" ]]; then
+      printf '%s\n%s' "${baseline}" "${current}" | python3 "${HERE}/_orchestrator.py" watch-delta
+      return 0
+    fi
+  done
+  echo "без изменений за ${timeout} с — исполнители там же, где были"
+  printf '%s' "${baseline}" | python3 "${HERE}/_orchestrator.py" watch-render
+}
+
+main() {
+  [[ $# -ge 1 ]] || { usage; exit 64; }
+  local command="$1"
+  shift
+  case "${command}" in
+    list) cmd_list "$@" ;;
+    run) cmd_run "$@" ;;
+    stop) cmd_stop "$@" ;;
+    watch) cmd_watch "$@" ;;
+    -h|--help|help) usage ;;
+    *) die "unknown command: ${command}" ;;
+  esac
+}
+
+main "$@"

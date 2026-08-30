@@ -40,9 +40,14 @@ dotnet publish "$REPO_ROOT/apps/api/src/Throne.Api/Throne.Api.csproj" -c Release
 
 [[ -x "$PUBLISH_DIR/throne" ]] || { echo "нет бинаря в $PUBLISH_DIR" >&2; exit 1; }
 
+# `throne status` выходит с нулём и на stopped, поэтому «демон работал» читаем из
+# вывода, а не из кода возврата. Первая установка — отдельный случай: демона не
+# было вовсе, и приложение всё равно надо поднять.
+first_install=1
 was_running=0
-if "$APP_DIR/throne" status >/dev/null 2>&1; then
-  was_running=1
+if [[ -x "$APP_DIR/throne" ]]; then
+  first_install=0
+  "$APP_DIR/throne" status 2>/dev/null | grep -q "status:  running" && was_running=1
   "$APP_DIR/throne" stop || true
 fi
 
@@ -63,7 +68,8 @@ cp -R "$REPO_ROOT/skills" "$APP_DIR/skills"
 mkdir -p "$APP_DIR/specs/manifest"
 cp "$REPO_ROOT"/specs/manifest/*.yaml "$APP_DIR/specs/manifest/"
 
-if [[ $restart -eq 1 && $was_running -eq 1 ]]; then
+# Сознательно остановленный демон остаётся остановленным; первая установка — стартует.
+if [[ $restart -eq 1 && ( $was_running -eq 1 || $first_install -eq 1 ) ]]; then
   "$APP_DIR/throne" --no-browser
 fi
 

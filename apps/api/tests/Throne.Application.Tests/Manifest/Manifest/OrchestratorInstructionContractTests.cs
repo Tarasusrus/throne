@@ -56,6 +56,7 @@ public class OrchestratorInstructionContractTests
     [InlineData("запуск")]
     [InlineData("остановк")]
     [InlineData("watch")]
+    [InlineData("приёмк")]
     public void Lists_every_skill_command(string command)
     {
         OrchestratorText().Should().ContainEquivalentOf(command);

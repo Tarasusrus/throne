@@ -19,23 +19,27 @@ public static class SkillManifestParser
 
         var manifest = new SkillManifest(
             Version: raw.Version,
-            SystemInstructions: (raw.SystemInstructions ?? [])
+            SystemInstructions: OrEmpty(raw.SystemInstructions)
                 .Select(e => new SystemInstructionEntry(e.Kind ?? "", e.Text ?? ""))
                 .ToArray(),
-            Bundles: (raw.Bundles ?? [])
-                .Select(b => new BundleDefinition(
-                    Mode: b.Mode ?? "",
-                    Includes: (b.Includes ?? [])
-                        .Select(i => new BundleInclude(i.Scope ?? "", i.Kind ?? ""))
-                        .ToArray()))
-                .ToArray(),
-            DreamSources: (raw.DreamSources ?? [])
+            Bundles: OrEmpty(raw.Bundles).Select(ToBundle).ToArray(),
+            DreamSources: OrEmpty(raw.DreamSources)
                 .Select(d => new DreamSourceManifestEntry(d.Vendor ?? "", d.Path ?? "", d.Hint ?? ""))
                 .ToArray());
 
         SkillManifestValidator.Validate(manifest);
         return manifest;
     }
+
+    private static BundleDefinition ToBundle(RawBundle b) => new(
+        Mode: b.Mode ?? "",
+        Includes: OrEmpty(b.Includes)
+            .Select(i => new BundleInclude(i.Scope ?? "", i.Kind ?? ""))
+            .ToArray());
+
+    // `key:` без значения десериализуется в null, а не в пустой список — валидатор
+    // должен увидеть пустоту, а не NullReferenceException.
+    private static List<T> OrEmpty<T>(List<T>? items) => items ?? [];
 
     private sealed class RawManifest
     {

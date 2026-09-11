@@ -1,6 +1,6 @@
 ---
 name: orchestrator
-description: Available for driving a whole tag from the orchestrator intent — listing the intents of your own tag with their statuses and attached tracker cards through skills/orchestrator/bin/throne-orchestrator. Routine operation in the orchestrator run mode (ADR-0054).
+description: Available for driving a whole tag from the orchestrator intent — listing the intents of your own tag, launching, watching and accepting executors (merge into the main branch) through skills/orchestrator/bin/throne-orchestrator. Routine operation in the orchestrator run mode (ADR-0054).
 ---
 
 # Throne Orchestrator Operations
@@ -53,9 +53,25 @@ first and passes the assembled `system_prompt`/`user_prompt` into the spawn — 
 assemble them on `run`, so skipping the preview would boot an executor with no rules and no task
 while still looking like success.
 
-A child intent is worth launching only if it is a statement of work: a `## Definition of Done`
-section is mandatory — without it there is nothing for the executor to be measured against, and
-nothing for you to accept.
+A child intent is worth launching only if it is a statement of work. Two sections are mandatory:
+`## Ветка` — the branch the executor works in and pushes when done — and `## Definition of Done` —
+what you will measure the result against. Without a DoD there is nothing to accept; without a
+branch there is nothing to fetch.
+
+```markdown
+<one line: what and why>
+
+## Ветка
+fix/<repo-short>-<what>
+
+## Definition of Done
+- [ ] <observable outcome>
+- [ ] tests: <command that must be green>
+- [ ] branch pushed, `## Отчёт` written into this intent
+```
+
+The executor's `work` instruction already tells it to push that branch and to write its report into
+its own body as `## Отчёт` — that report, not the chat, is what you read at acceptance.
 
 An intent outside your tag is refused before any HTTP call. A live session is not a failure: `run`
 prints «уже работает» and exits 0. `stop` kills the session and is idempotent.
@@ -117,6 +133,53 @@ What the first live run (2026-09-02) actually showed:
 So you may promise the operator that you will keep an eye on the executors — and then verify with
 your own `watch` before you act on what the monitor told you.
 
+## Accepting their work
+
+An executor that came back (`awaiting_operator`, or a session that vanished) has handed you a
+branch. Accepting it is your job — the operator is not a reviewer on call. The sequence:
+
+1. Read the report: `THRONE_INTENT_ID=<child> skills/intent/bin/throne-intent get` — the
+   `## Отчёт` section says what was done and what was checked.
+2. Review the branch against the DoD in your own clone of the tag's repository (`git fetch origin
+   && git diff origin/<main>...origin/<branch>`); run `/code-review` on it if the vendor offers one.
+   You judge scope, tests, and whether every DoD line is closed.
+3. Let the CLI do the deterministic part:
+
+```bash
+skills/orchestrator/bin/throne-orchestrator accept --repo <abs path to clone> --branch <name> \
+  --check "<test command>"
+```
+
+`accept` refuses a dirty tree (65), then fetches, resets the local main branch to `origin/<main>`
+(pass `--into` when origin has no default branch), merges the executor's branch `--no-ff`, runs
+`--check` inside the merged tree, and pushes. Every failure has its own exit code and leaves the
+main branch exactly where origin has it: 66 — the branch was never pushed; 67 — merge conflict;
+68 — the check is red (the merge is rolled back); 69 — the push was rejected (retry). Re-running it
+on an already merged branch is a no-op that prints «уже влито». The executor's branch is never
+touched.
+
+4. Accepted: journal it (`YYYY-MM-DD — принято <branch>. Интенты: <child>`), move the child out of
+   `## В работе`, take the next statement of work.
+   Not accepted (a DoD line open, review red, `accept` returned 66–68): append what is missing to
+   the child intent and `run` it again. Do not finish the work yourself, and do not carry it to the
+   operator — a returned task is the ordinary loop, not an escalation.
+
+Pushing and merging into the tag's own repositories is what this mode is for. The general
+«ask before push» rule from the shared prompt parts does not apply here; the operator is not asked.
+
+## Talking to the operator
+
+The operator is the architect; you are the tech lead. Come with exactly three kinds of things:
+
+- an architectural fork — two viable paths, each with its cost, and your recommendation;
+- a contradiction in the statement of work that the decision journal cannot resolve;
+- an irreversible action outside the tag: deleting data, touching someone else's repository,
+  a force-push.
+
+Everything else is your decision, written into the journal. «Проверять? Вливать? Продолжать?
+Запускать следующую?» are not questions — they are the job. If you catch yourself typing one, do the
+thing and report it done.
+
 ## Editing your own body
 
 Your memory lives in your own `Intent.text` (ADR-0054): `## Зона`, `## Решения`, `## В работе`,
@@ -141,5 +204,7 @@ The script reads two variables from the environment. A Throne-spawned session ha
 - Do not write intent status from the agent. Throne derives status from session hooks.
 - An orchestrator intent carries exactly one tag. Several tags is a broken setup — the CLI refuses
   instead of picking one.
-- You do not do the task yourself. Your output is a statement of work, a launched executor, a
-  decision recorded in your body — not a code change.
+- You do not write the task's code yourself. Your output is a statement of work, a launched
+  executor, an accepted and merged branch, a decision recorded in your body.
+- Acceptance is yours, not the operator's. The operator sees merged results and architectural forks
+  — never a «shall I check / merge / continue?».

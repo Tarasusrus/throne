@@ -13,6 +13,7 @@ Usage:
   throne-orchestrator run --intent ID [--vendor V] [--model M]
   throne-orchestrator stop --intent ID
   throne-orchestrator watch [--wait] [--timeout SECONDS]
+  throne-orchestrator accept --repo PATH --branch NAME [--into BRANCH] [--check CMD]
 
 list — интенты тега текущего интента: id, статус, заголовок, карточки трекера.
 Тег берётся из собственного интента, аргументом его не задают.
@@ -27,6 +28,16 @@ watch — картина по исполнителям: у кого живая �
 или done. Без флагов — мгновенный срез. С --wait ждёт первого изменения, но не
 дольше --timeout (по умолчанию 600 с, потолок 900 с): фонового наблюдения контур
 не даёт, ожидание живёт внутри хода. Истёкший таймаут — не ошибка.
+
+accept — детерминированная часть приёмки ветки исполнителя в клоне оркестратора:
+fetch, подтянуть основную ветку, слить --no-ff, прогнать --check, запушить.
+Ревью diff против DoD — до вызова, руками. Коды выхода называют причину:
+  0  влито (или уже было влито — no-op)
+  65 рабочее дерево не чистое — ничего не тронуто
+  66 ветка не запушена на origin — исполнитель не сдал работу
+  67 конфликт слияния — вернуть исполнителю на ребейз
+  68 --check красный — вернуть исполнителю, слияние откачено
+  69 push отклонён — локальная ветка возвращена к origin, повторить
 USAGE
 }
 
@@ -232,6 +243,85 @@ cmd_watch() {
   printf '%s' "${baseline}" | python3 "${HERE}/_orchestrator.py" watch-render
 }
 
+# Приёмка: только git, без HTTP. Ветку исполнителя не трогает, основную ветку
+# двигает ровно в одном случае — чистое слияние и зелёная проверка; любой другой
+# исход откатывает локальное состояние к origin. Каждый отказ — свой код выхода,
+# чтобы агент ветвился по числу, а не парсил текст.
+ACCEPT_DIRTY=65
+ACCEPT_NOT_PUSHED=66
+ACCEPT_CONFLICT=67
+ACCEPT_CHECK_FAILED=68
+ACCEPT_PUSH_REJECTED=69
+
+accept_fail() {
+  local code="$1"; shift
+  echo "throne-orchestrator: $*" >&2
+  exit "${code}"
+}
+
+cmd_accept() {
+  local repo="" branch="" into="" check=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) [[ $# -ge 2 ]] || die "--repo requires a value"; repo="$2"; shift 2 ;;
+      --branch) [[ $# -ge 2 ]] || die "--branch requires a value"; branch="$2"; shift 2 ;;
+      --into) [[ $# -ge 2 ]] || die "--into requires a value"; into="$2"; shift 2 ;;
+      --check) [[ $# -ge 2 ]] || die "--check requires a value"; check="$2"; shift 2 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -n "${repo}" ]] || die "accept requires --repo PATH"
+  [[ -n "${branch}" ]] || die "accept requires --branch NAME"
+  git -C "${repo}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "не git-репозиторий: ${repo}"
+
+  # Чужие незакоммиченные правки не выбрасываем — отказ до любого сетевого шага.
+  [[ -z "$(git -C "${repo}" status --porcelain)" ]] \
+    || accept_fail "${ACCEPT_DIRTY}" "рабочее дерево ${repo} не чистое — приёмка не начата"
+
+  git -C "${repo}" fetch -q --prune origin
+
+  if [[ -z "${into}" ]]; then
+    into="$(git -C "${repo}" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+    into="${into#origin/}"
+    [[ -n "${into}" ]] || die "не определить основную ветку origin — задай --into"
+  fi
+
+  # Локальная основная ветка — зеркало origin: своих коммитов на ней нет, любой
+  # исход приёмки оставляет её равной origin.
+  git -C "${repo}" checkout -q "${into}" 2>/dev/null \
+    || git -C "${repo}" checkout -q -b "${into}" "origin/${into}"
+  git -C "${repo}" reset -q --hard "origin/${into}"
+
+  git -C "${repo}" rev-parse -q --verify "refs/remotes/origin/${branch}" >/dev/null \
+    || accept_fail "${ACCEPT_NOT_PUSHED}" "origin/${branch} нет — исполнитель не запушил ветку"
+
+  if git -C "${repo}" merge-base --is-ancestor "origin/${branch}" "origin/${into}"; then
+    echo "уже влито: ${branch} → ${into}"
+    return 0
+  fi
+
+  local before
+  before="$(git -C "${repo}" rev-parse HEAD)"
+  if ! git -C "${repo}" merge -q --no-ff --no-edit -m "merge: ${branch}" "origin/${branch}" >/dev/null 2>&1; then
+    git -C "${repo}" merge --abort 2>/dev/null || git -C "${repo}" reset -q --hard "${before}"
+    accept_fail "${ACCEPT_CONFLICT}" "конфликт слияния ${branch} → ${into} — вернуть исполнителю на ребейз"
+  fi
+
+  if [[ -n "${check}" ]]; then
+    if ! (cd "${repo}" && bash -c "${check}"); then
+      git -C "${repo}" reset -q --hard "${before}"
+      accept_fail "${ACCEPT_CHECK_FAILED}" "проверка «${check}» красная — слияние откачено, вернуть исполнителю"
+    fi
+  fi
+
+  if ! git -C "${repo}" push -q origin "${into}" 2>/dev/null; then
+    git -C "${repo}" reset -q --hard "${before}"
+    accept_fail "${ACCEPT_PUSH_REJECTED}" "push ${into} отклонён — локальная ветка возвращена к origin, повтори accept"
+  fi
+  echo "влито: ${branch} → ${into} ($(git -C "${repo}" rev-parse --short HEAD))"
+}
+
 main() {
   [[ $# -ge 1 ]] || { usage; exit 64; }
   local command="$1"
@@ -241,6 +331,7 @@ main() {
     run) cmd_run "$@" ;;
     stop) cmd_stop "$@" ;;
     watch) cmd_watch "$@" ;;
+    accept) cmd_accept "$@" ;;
     -h|--help|help) usage ;;
     *) die "unknown command: ${command}" ;;
   esac

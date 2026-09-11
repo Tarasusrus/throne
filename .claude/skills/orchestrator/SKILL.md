@@ -15,7 +15,9 @@ describes someone else's live work. Then `list` shows the intents of your tag wi
 and attached tracker cards, and `run` / `stop` drive executors on them — one at a time, because the
 spawn is synchronous and the vendor trust file is shared; a child intent needs a
 `## Definition of Done`. `watch` reports who moved; with `--wait` it blocks inside the turn, while a
-background monitor built on it can wake a parked session — see the canon. The script degrades gracefully: `THRONE_API_BASE` defaults to
+background monitor built on it can wake a parked session — see the canon. `accept` merges a
+returned executor's branch into the main branch and pushes; acceptance is the orchestrator's job,
+not a question to the operator. The script degrades gracefully: `THRONE_API_BASE` defaults to
 the local backend `http://localhost:5008`, while an unset `THRONE_INTENT_ID` means there is no
 orchestrator intent to resolve a tag from — the command refuses instead of guessing. See
 `skills/orchestrator/SKILL.md` for the full picture.

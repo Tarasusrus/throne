@@ -19,17 +19,17 @@ public static class SkillManifestParser
 
         var manifest = new SkillManifest(
             Version: raw.Version,
-            SystemInstructions: raw.SystemInstructions
+            SystemInstructions: (raw.SystemInstructions ?? [])
                 .Select(e => new SystemInstructionEntry(e.Kind ?? "", e.Text ?? ""))
                 .ToArray(),
-            Bundles: raw.Bundles
+            Bundles: (raw.Bundles ?? [])
                 .Select(b => new BundleDefinition(
                     Mode: b.Mode ?? "",
-                    Includes: b.Includes
+                    Includes: (b.Includes ?? [])
                         .Select(i => new BundleInclude(i.Scope ?? "", i.Kind ?? ""))
                         .ToArray()))
                 .ToArray(),
-            DreamSources: raw.DreamSources
+            DreamSources: (raw.DreamSources ?? [])
                 .Select(d => new DreamSourceManifestEntry(d.Vendor ?? "", d.Path ?? "", d.Hint ?? ""))
                 .ToArray());
 
@@ -40,9 +40,9 @@ public static class SkillManifestParser
     private sealed class RawManifest
     {
         public int Version { get; set; }
-        public List<RawSystemInstruction> SystemInstructions { get; set; } = new();
-        public List<RawBundle> Bundles { get; set; } = new();
-        public List<RawDreamSource> DreamSources { get; set; } = new();
+        public List<RawSystemInstruction>? SystemInstructions { get; set; } = new();
+        public List<RawBundle>? Bundles { get; set; } = new();
+        public List<RawDreamSource>? DreamSources { get; set; } = new();
     }
 
     private sealed class RawDreamSource
@@ -61,7 +61,7 @@ public static class SkillManifestParser
     private sealed class RawBundle
     {
         public string? Mode { get; set; }
-        public List<RawInclude> Includes { get; set; } = new();
+        public List<RawInclude>? Includes { get; set; } = new();
     }
 
     private sealed class RawInclude

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Throne.Application.Manifest;
+using Throne.Application.Tests.Manifest;
 
 namespace Throne.Application.Tests.Manifest.Manifest;
 
@@ -98,7 +99,7 @@ public class SkillManifestParserTests
     [Fact(DisplayName = "Реальный manifest specs/manifest/throne-system-prompt-parts.yaml парсится без ошибок")]
     public void Parses_real_manifest_from_repo()
     {
-        var path = ResolveManifestPath();
+        var path = SkillManifestFixtures.RepoManifestPath();
         var yaml = File.ReadAllText(path);
 
         var manifest = SkillManifestParser.Parse(yaml);
@@ -108,25 +109,5 @@ public class SkillManifestParserTests
         manifest.Bundles.Select(b => b.Mode).Should().BeEquivalentTo(ExpectedBundleModes);
         manifest.DreamSources.Should().HaveCount(3);
         manifest.DreamSources.Select(s => s.Vendor).Should().BeEquivalentTo("claude-code", "claude-desktop", "codex-cli");
-    }
-
-    private static string ResolveManifestPath()
-    {
-        // The manifest is also published into bin output via Throne.Api.csproj Content,
-        // so we anchor on specs/AGENTS.local.md (only present at repo root) to find the source.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var manifestPath = Path.Combine(dir.FullName, "specs", "manifest", "throne-system-prompt-parts.yaml");
-            var anchor = Path.Combine(dir.FullName, "specs", "AGENTS.local.md");
-            if (File.Exists(manifestPath) && File.Exists(anchor))
-            {
-                return manifestPath;
-            }
-            dir = dir.Parent;
-        }
-        throw new FileNotFoundException(
-            "Cannot locate repo-root throne-system-prompt-parts.yaml (looked for specs/manifest/throne-system-prompt-parts.yaml + specs/AGENTS.local.md) walking up from " +
-            AppContext.BaseDirectory);
     }
 }

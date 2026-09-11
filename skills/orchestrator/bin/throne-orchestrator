@@ -33,7 +33,7 @@ accept — детерминированная часть приёмки ветк
 fetch, подтянуть основную ветку, слить --no-ff, прогнать --check, запушить.
 Ревью diff против DoD — до вызова, руками. Коды выхода называют причину:
   0  влито (или уже было влито — no-op)
-  65 рабочее дерево не чистое — ничего не тронуто
+  65 рабочее дерево не чистое или на основной ветке незапушенные коммиты — ничего не тронуто
   66 ветка не запушена на origin — исполнитель не сдал работу
   67 конфликт слияния — вернуть исполнителю на ребейз
   68 --check красный — вернуть исполнителю, слияние откачено
@@ -283,12 +283,20 @@ cmd_accept() {
 
   if [[ -z "${into}" ]]; then
     into="$(git -C "${repo}" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-    into="${into#origin/}"
     [[ -n "${into}" ]] || die "не определить основную ветку origin — задай --into"
   fi
+  # «origin/main» и «main» — одна и та же ветка; несуществующая — ошибка аргумента,
+  # а не detached HEAD посреди приёмки.
+  into="${into#origin/}"
+  git -C "${repo}" rev-parse -q --verify "refs/remotes/origin/${into}" >/dev/null \
+    || die "на origin нет ветки ${into} — проверь --into"
 
-  # Локальная основная ветка — зеркало origin: своих коммитов на ней нет, любой
-  # исход приёмки оставляет её равной origin.
+  # Локальная основная ветка — зеркало origin. Незапушенные коммиты на ней — чужая
+  # работа, её не выбрасываем: это тот же отказ, что и грязное дерево.
+  if git -C "${repo}" rev-parse -q --verify "refs/heads/${into}" >/dev/null \
+    && [[ "$(git -C "${repo}" rev-list --count "origin/${into}..${into}")" != "0" ]]; then
+    accept_fail "${ACCEPT_DIRTY}" "на ${into} есть незапушенные коммиты — приёмка не начата"
+  fi
   git -C "${repo}" checkout -q "${into}" 2>/dev/null \
     || git -C "${repo}" checkout -q -b "${into}" "origin/${into}"
   git -C "${repo}" reset -q --hard "origin/${into}"
@@ -301,16 +309,27 @@ cmd_accept() {
     return 0
   fi
 
-  local before
+  local before merge_log conflicts
   before="$(git -C "${repo}" rev-parse HEAD)"
-  if ! git -C "${repo}" merge -q --no-ff --no-edit -m "merge: ${branch}" "origin/${branch}" >/dev/null 2>&1; then
+  if ! merge_log="$(git -C "${repo}" merge -q --no-ff --no-edit -m "merge: ${branch}" "origin/${branch}" 2>&1)"; then
+    conflicts="$(git -C "${repo}" diff --name-only --diff-filter=U 2>/dev/null || true)"
     git -C "${repo}" merge --abort 2>/dev/null || git -C "${repo}" reset -q --hard "${before}"
-    accept_fail "${ACCEPT_CONFLICT}" "конфликт слияния ${branch} → ${into} — вернуть исполнителю на ребейз"
+    git -C "${repo}" clean -fdq
+    # Конфликт — исполнителю на ребейз, и он должен знать, где. Всё остальное
+    # (unrelated histories, хук, identity) ребейзом не лечится — отдаём как есть.
+    if [[ -n "${conflicts}" ]]; then
+      printf 'конфликтуют:\n%s\n' "${conflicts}" >&2
+      accept_fail "${ACCEPT_CONFLICT}" "конфликт слияния ${branch} → ${into} — вернуть исполнителю на ребейз"
+    fi
+    printf '%s\n' "${merge_log}" >&2
+    accept_fail 1 "слияние ${branch} → ${into} не прошло не из-за конфликта — см. вывод git"
   fi
 
   if [[ -n "${check}" ]]; then
     if ! (cd "${repo}" && bash -c "${check}"); then
+      # Дерево было чистым до приёмки, значит всё untracked — мусор самой проверки.
       git -C "${repo}" reset -q --hard "${before}"
+      git -C "${repo}" clean -fdq
       accept_fail "${ACCEPT_CHECK_FAILED}" "проверка «${check}» красная — слияние откачено, вернуть исполнителю"
     fi
   fi

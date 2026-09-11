@@ -157,6 +157,71 @@ public class OrchestratorAcceptPropertyTests
         run.ExitCode.Should().Be(ExitAccepted, run.Output);
     }
 
+    [Fact(DisplayName = "После красной проверки повтор приёмки возможен: мусор проверки не оставляет дерево грязным")]
+    public void Red_check_leaves_no_junk_behind()
+    {
+        var s = Generate(3) with { Pushed = true, Conflicting = false, AlreadyMerged = false, CheckPasses = false };
+        using var world = World.Build(s);
+
+        world.Accept(s).ExitCode.Should().Be(ExitCheckFailed);
+        var retry = world.Accept(s, check: "true");
+
+        retry.ExitCode.Should().Be(ExitAccepted, retry.Output);
+    }
+
+    [Fact(DisplayName = "--into принимает и «main», и «origin/main» — результат один и тот же")]
+    public void Into_accepts_remote_prefixed_name()
+    {
+        var s = Generate(4) with { Pushed = true, Conflicting = false, AlreadyMerged = false, CheckPasses = null };
+        using var world = World.Build(s);
+
+        var run = world.Accept(s, into: "origin/" + s.Into);
+
+        run.ExitCode.Should().Be(ExitAccepted, run.Output);
+        world.Git("rev-parse --abbrev-ref HEAD").Should().Be(s.Into, "HEAD не должен оказаться detached");
+    }
+
+    [Fact(DisplayName = "Несуществующая --into — ошибка аргумента, а не молчаливый detached HEAD")]
+    public void Unknown_into_is_a_usage_error()
+    {
+        var s = Generate(5) with { Pushed = true, Conflicting = false, AlreadyMerged = false, CheckPasses = null };
+        using var world = World.Build(s);
+        var before = world.OriginSha(s.Into);
+
+        var run = world.Accept(s, into: "no-such-branch");
+
+        run.ExitCode.Should().Be(64, run.Output);
+        world.OriginSha(s.Into).Should().Be(before);
+    }
+
+    [Fact(DisplayName = "Незапушенный коммит на основной ветке клона не выбрасывается молча — отказ 65")]
+    public void Local_commits_on_main_are_not_discarded()
+    {
+        var s = Generate(6) with { Pushed = true, Conflicting = false, AlreadyMerged = false, CheckPasses = null };
+        using var world = World.Build(s);
+        File.WriteAllText(Path.Combine(world.Repo, "local-note.txt"), "keep me\n");
+        world.Git("add -A");
+        world.Git("commit -q -m local-note");
+        var local = world.Git("rev-parse HEAD");
+
+        var run = world.Accept(s);
+
+        run.ExitCode.Should().Be(ExitDirtyTree, run.Output);
+        world.Git("rev-parse HEAD").Should().Be(local, "локальный коммит остаётся на месте");
+    }
+
+    [Fact(DisplayName = "Конфликт называет файлы — оркестратору есть что написать исполнителю")]
+    public void Conflict_names_the_files()
+    {
+        var s = Generate(7) with { Pushed = true, Conflicting = true, AlreadyMerged = false, CheckPasses = null };
+        using var world = World.Build(s);
+
+        var run = world.Accept(s);
+
+        run.ExitCode.Should().Be(ExitConflict, run.Output);
+        run.Output.Should().Contain("shared.txt");
+    }
+
     private sealed record RunResult(int ExitCode, string Output);
 
     /// <summary>Bare origin + клон исполнителя + клон оркестратора в temp-каталоге.</summary>
@@ -239,18 +304,23 @@ public class OrchestratorAcceptPropertyTests
             return w;
         }
 
-        public RunResult Accept(Scenario s, string? check = null)
+        public RunResult Accept(Scenario s, string? check = null, string? into = null)
         {
             check ??= s.CheckPasses switch
             {
                 null => null,
                 true => "test -e green.txt",
-                false => "test -e never-there.txt",
+                // Красная проверка мусорит untracked-файлом — как реальный test runner.
+                false => "touch junk-from-check.txt; test -e never-there.txt",
             };
             var args = $"accept --repo \"{Repo}\" --branch \"{s.Branch}\"";
             if (check is not null)
             {
                 args += $" --check \"{check}\"";
+            }
+            if (into is not null)
+            {
+                args += $" --into \"{into}\"";
             }
             var (code, output) = Exec(_root, Cli, args);
             return new RunResult(code, output);

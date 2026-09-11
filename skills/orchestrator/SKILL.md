@@ -150,13 +150,16 @@ skills/orchestrator/bin/throne-orchestrator accept --repo <abs path to clone> --
   --check "<test command>"
 ```
 
-`accept` refuses a dirty tree (65), then fetches, resets the local main branch to `origin/<main>`
-(pass `--into` when origin has no default branch), merges the executor's branch `--no-ff`, runs
-`--check` inside the merged tree, and pushes. Every failure has its own exit code and leaves the
-main branch exactly where origin has it: 66 — the branch was never pushed; 67 — merge conflict;
-68 — the check is red (the merge is rolled back); 69 — the push was rejected (retry). Re-running it
-on an already merged branch is a no-op that prints «уже влито». The executor's branch is never
-touched.
+`accept` refuses a dirty tree or unpushed local commits on the main branch (65), then fetches,
+resets the local main branch to `origin/<main>` (pass `--into` when origin has no default branch;
+`main` and `origin/main` mean the same), merges the executor's branch `--no-ff`, runs `--check`
+inside the merged tree, and pushes. Every failure has its own exit code and leaves the main branch
+exactly where origin has it: 66 — the branch was never pushed; 67 — merge conflict, the conflicting
+files are listed on stderr for the executor; 68 — the check is red (the merge is rolled back, the
+check's leftovers cleaned); 69 — the push was rejected (retry). A merge failure that is not a
+conflict (unrelated histories, a hook) exits 1 with git's own output — a rebase will not fix it, so
+read it. Re-running on an already merged branch is a no-op that prints «уже влито». The executor's
+branch is never touched.
 
 4. Accepted: journal it (`YYYY-MM-DD — принято <branch>. Интенты: <child>`), move the child out of
    `## В работе`, take the next statement of work.

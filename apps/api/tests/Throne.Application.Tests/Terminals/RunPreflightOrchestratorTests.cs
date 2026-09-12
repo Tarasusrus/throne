@@ -17,7 +17,8 @@ public partial class RunPreflightOrchestratorTests
     private static readonly TerminalLaunchInput DefaultLaunch = new(Vendor: null, Model: null, Effort: null);
     private static readonly TerminalSpawnPrompt NoPrompt = TerminalSpawnPrompt.Empty;
     private static readonly TerminalSpawnPrompt CuratedPrompt = new("RULES", "TASK", null, null);
-    private static readonly string[] ClaudeBareArgs = ["--model", "opus", "--effort", "high", "--settings", SettingsPath];
+    private static readonly string[] ClaudeBareArgs =
+        ["--model", "opus", "--effort", "high", "--remote-control", "--settings", SettingsPath];
 
     [Fact(DisplayName = "Run падает с capability.disabled, если capability terminal выключен")]
     public async Task Run_capability_disabled_throws()

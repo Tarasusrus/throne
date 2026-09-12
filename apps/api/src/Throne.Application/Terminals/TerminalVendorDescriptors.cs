@@ -18,7 +18,12 @@ public static class TerminalVendorDescriptors
         Efforts: TerminalAgentCatalog.SharedEfforts,
         DefaultEffort: TerminalAgentCatalog.EffortHigh,
         ModelSource: TerminalAgentCatalog.ModelSourceStatic,
-        BuildBaseArgs: static options => ["--model", options.Model, "--effort", options.Effort!],
+        // --remote-control: Throne's embedded orchestrator session should be steerable from
+        // claude.ai/code and the Claude mobile app the moment it spawns, without a manual
+        // /remote-control step in the pane. Requires the host CLI to be logged in via claude.ai
+        // (not an API key) — otherwise Claude Code still starts, just without remote control.
+        BuildBaseArgs: static options =>
+            ["--model", options.Model, "--effort", options.Effort!, "--remote-control"],
         SupportsNativeHotAttach: true);
 
     public static readonly TerminalVendorDescriptor Codex = new(

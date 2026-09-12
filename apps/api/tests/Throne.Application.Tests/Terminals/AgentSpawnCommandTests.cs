@@ -13,7 +13,7 @@ public class AgentSpawnCommandTests
         var invocation = AgentSpawnCommand.Build(TerminalVendorDescriptors.Claude, options);
 
         invocation.Command.Should().Be("claude");
-        invocation.Arguments.Should().Equal("--model", "opus", "--effort", "high");
+        invocation.Arguments.Should().Equal("--model", "opus", "--effort", "high", "--remote-control");
     }
 
     [Fact(DisplayName = "prepared-аргументы адаптера дописываются после base-флагов")]
@@ -27,7 +27,7 @@ public class AgentSpawnCommandTests
             preparedArgs: ["--settings", "/tmp/settings.json", "--append-system-prompt-file", "/tmp/sp.txt"]);
 
         invocation.Arguments.Should().Equal(
-            "--model", "opus", "--effort", "high",
+            "--model", "opus", "--effort", "high", "--remote-control",
             "--settings", "/tmp/settings.json",
             "--append-system-prompt-file", "/tmp/sp.txt");
     }

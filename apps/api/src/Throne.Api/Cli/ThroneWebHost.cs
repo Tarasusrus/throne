@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Throne.Api.Hosting;
 using Throne.Api.Intents;
 using Throne.Api.Shared;
+using Throne.Infrastructure.Manifest;
 
 namespace Throne.Api.Cli;
 
@@ -42,7 +43,11 @@ public static class ThroneWebHost
         app.MapControllers();
         app.MapThroneEndpoints();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-        app.MapGet("/version", () => Results.Ok(new { version = ThroneVersion.Current }));
+        app.MapGet("/version", (IHostEnvironment env) => Results.Ok(new
+        {
+            version = ThroneVersion.Current,
+            manifest_hash = DeployManifestHash.Compute(env.ContentRootPath),
+        }));
 
         // More specific than the SPA file fallback, so an unmatched /api/* request
         // 404s as an API call instead of silently returning index.html.

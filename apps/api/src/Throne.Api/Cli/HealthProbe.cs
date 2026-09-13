@@ -6,8 +6,11 @@ namespace Throne.Api.Cli;
 /// Talks to a running instance over its own HTTP surface: <c>/health</c> to know
 /// when a freshly spawned daemon is actually serving (so the browser opens only
 /// when the UI is ready), and <c>/version</c> so <c>status</c> reports the version
-/// the live process is running rather than the launcher's own build.
+/// and manifest fingerprint the live process is running rather than the
+/// launcher's own build.
 /// </summary>
+public sealed record VersionInfo(string Version, string? ManifestHash);
+
 internal static class HealthProbe
 {
     public static async Task<bool> WaitHealthyAsync(
@@ -37,14 +40,21 @@ internal static class HealthProbe
         return false;
     }
 
-    public static async Task<string?> TryGetVersionAsync(string url, CancellationToken ct)
+    public static async Task<VersionInfo?> TryGetVersionAsync(string url, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
         try
         {
             await using var stream = await http.GetStreamAsync($"{url}/version", ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            return doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : null;
+            var version = doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : null;
+            if (version is null)
+            {
+                return null;
+            }
+
+            var manifestHash = doc.RootElement.TryGetProperty("manifest_hash", out var m) ? m.GetString() : null;
+            return new VersionInfo(version, manifestHash);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {

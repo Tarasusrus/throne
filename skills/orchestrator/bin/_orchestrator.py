@@ -6,6 +6,8 @@
 молча — на кавычках, а не на логике.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -140,32 +142,71 @@ REVIEW_SECTIONS = ("Ветка", "Definition of Done", "Для человека"
 REVIEW_REQUIRED = ("Ветка", "Definition of Done")
 
 
-def _split_sections(text: str) -> dict[str, list[str]]:
-    """Секции по заголовкам `## `; заголовок внутри code fence секцию не открывает."""
+def _fence_marker(line: str) -> tuple[str, int] | None:
+    """Строка — code fence по CommonMark: три и больше одинаковых ` или ~ подряд."""
+    stripped = line.lstrip()
+    for char in "`~":
+        if stripped.startswith(char * 3):
+            return char, len(stripped) - len(stripped.lstrip(char))
+    return None
+
+
+def _scan_sections(text: str) -> tuple[dict[str, list[str]], int | None]:
+    """Секции по заголовкам `## `; заголовок внутри code fence секцию не открывает.
+
+    Fence закрывается только тем же символом и не короче открывающего (CommonMark),
+    иначе любой ``` в тексте переключал бы состояние и прятал секции. Второй
+    элемент — номер строки fence, который так и не закрылся, либо None.
+    """
     sections: dict[str, list[str]] = {}
     current = None
-    fenced = False
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-        elif not fenced and line.startswith("## "):
+    fence: tuple[str, int] | None = None
+    fence_line = None
+    for number, line in enumerate(text.split("\n"), start=1):
+        marker = _fence_marker(line)
+        if fence is None and marker is not None:
+            fence, fence_line = marker, number
+        elif fence is not None and marker is not None and marker[0] == fence[0] and marker[1] >= fence[1]:
+            fence = None
+        elif fence is None and line.startswith("## "):
             current = line[3:].strip()
             sections[current] = []
             continue
         if current is not None:
             sections[current].append(line)
-    return sections
+    return sections, fence_line if fence is not None else None
+
+
+def _split_sections(text: str) -> dict[str, list[str]]:
+    return _scan_sections(text)[0]
+
+
+def _branch_name(section: list[str]) -> str:
+    """Имя ветки — первая непустая строка секции без fence и инлайновых бэктиков;
+    остальные строки — примечания исполнителю, в заголовок ревью им не место."""
+    for line in section:
+        if line.strip() and _fence_marker(line) is None:
+            return line.strip().strip("`").strip()
+    return ""
 
 
 def review_body(executor_text: str) -> str:
-    sections = _split_sections(executor_text)
+    sections, open_fence = _scan_sections(executor_text)
     missing = [name for name in REVIEW_REQUIRED if not "\n".join(sections.get(name, [])).strip()]
+    if missing and open_fence is not None:
+        raise ValueError(
+            "в теле исполнителя не закрыт code fence (строка " + str(open_fence)
+            + "), за ним не видно " + " и ".join("## " + m for m in missing)
+            + " — закрой fence и повтори"
+        )
     if missing:
         raise ValueError(
             "в теле исполнителя нет секции " + " и ".join("## " + m for m in missing)
             + " — без неё ревьюеру нечего проверять"
         )
-    branch = "\n".join(sections["Ветка"]).strip()
+    branch = _branch_name(sections["Ветка"])
+    if not branch:
+        raise ValueError("в секции ## Ветка нет имени ветки — только fence или пустые строки")
     parts = ["[REVIEW] независимое ревью ветки " + branch]
     for name in REVIEW_SECTIONS:
         if name in sections:

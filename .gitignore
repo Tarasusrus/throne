@@ -21,6 +21,10 @@ coverage/
 *.coverage
 *.coveragexml
 
+# Python test/bytecode caches (skills/*/tests, skills/*/bin)
+__pycache__/
+.pytest_cache/
+
 # OS
 .DS_Store
 Thumbs.db

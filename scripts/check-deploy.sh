@@ -25,7 +25,7 @@ for rel in specs/manifest skills; do
     drift=1
     continue
   fi
-  diff -rq --exclude=.DS_Store "$REPO_ROOT/$rel" "$APP_DIR/$rel" || drift=1
+  diff -rq --exclude=.DS_Store --exclude=__pycache__ --exclude=.pytest_cache "$REPO_ROOT/$rel" "$APP_DIR/$rel" || drift=1
 done
 
 repo_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"

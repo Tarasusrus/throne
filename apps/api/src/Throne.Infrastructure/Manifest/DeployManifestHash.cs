@@ -50,8 +50,21 @@ public static class DeployManifestHash
             foreach (var file in Directory.EnumerateFiles(skillsDir, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
+                if (IsIgnoredCacheArtifact(relative))
+                {
+                    continue;
+                }
+
                 yield return (relative, file);
             }
         }
     }
+
+    /// <summary>
+    /// Python test/bytecode caches (<c>__pycache__</c>, <c>.pytest_cache</c>) are
+    /// left behind by running <c>skills/orchestrator/tests</c> locally — not part
+    /// of the deployed bundle, so they must not perturb the hash between runs.
+    /// </summary>
+    private static bool IsIgnoredCacheArtifact(string relativePath) =>
+        relativePath.Split('/').Any(segment => segment is "__pycache__" or ".pytest_cache");
 }

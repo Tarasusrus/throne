@@ -249,11 +249,13 @@ cmd_review() {
   rm -f "${body_file}"
   http_post_or_fail "/api/v1/intents" "${create_payload}"
   review_id="$(printf '%s' "${HTTP_BODY}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  # id печатается сразу: интент уже существует, и если линк или запуск ниже упадут,
+  # повторный `review` создал бы второй — а этот остался бы потерянным.
+  echo "${review_id}"
 
   # Связь «ревью вытекает из задачи исполнителя» — по ней оркестратор находит вердикт.
   http_post_or_fail "/api/v1/intents/${review_id}/links" \
     "{\"to_id\":\"${target}\",\"blocking\":false,\"rationale\":\"независимое ревью ветки исполнителя\"}"
-  echo "${review_id}"
 
   spawn_session "${review_id}" verify "${vendor}" "${model}" "${effort}"
 }

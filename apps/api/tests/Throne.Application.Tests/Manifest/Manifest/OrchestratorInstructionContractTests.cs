@@ -87,4 +87,62 @@ public class OrchestratorInstructionContractTests
     {
         OrchestratorText().Should().Contain("## Definition of Done");
     }
+
+    // Оператору запрещена внутренняя кухня оркестрации: id/хэши, имена веток/файлов/
+    // функций/переменных, номера прогонов, служебные фразы. Каждый образец — то, что
+    // реально уходило оператору 13.09 до появления стандарта (см. ## Примеры интента).
+    [Theory(DisplayName = "Правило языка с оператором запрещает внутреннюю кухню")]
+    [InlineData("хэш")]
+    [InlineData("id интент")]
+    [InlineData("имена веток")]
+    [InlineData("номера прогонов")]
+    [InlineData("кухн")]
+    [InlineData("жду монитор")]
+    public void Operator_language_rule_forbids_internal_kitchen(string forbiddenMention)
+    {
+        var rule = RuleLineWithMarker(OrchestratorText(), "Оператору нельзя нести");
+
+        rule.Should().ContainEquivalentOf(forbiddenMention);
+    }
+
+    [Fact(DisplayName = "Правило языка с оператором разрешает статус одним из пяти слов")]
+    public void Operator_language_rule_allows_the_five_status_words()
+    {
+        var rule = RuleLineWithMarker(OrchestratorText(), "Оператору нельзя нести");
+
+        foreach (var status in new[] { "идёт", "встал", "принято", "влито", "в очереди" })
+        {
+            rule.Should().ContainEquivalentOf(status);
+        }
+    }
+
+    [Fact(DisplayName = "Правило именования задачи: короткое имя из заголовка, не хэш, неизменное")]
+    public void Operator_language_rule_names_tasks_by_title_not_hash()
+    {
+        var rule = RuleLineWithMarker(OrchestratorText(), "Оператору нельзя нести");
+
+        rule.Should().ContainEquivalentOf("2–4 слов");
+        rule.Should().ContainEquivalentOf("не хэшем");
+        rule.Should().ContainEquivalentOf("неизменным");
+    }
+
+    [Fact(DisplayName = "Оператору пишут только по результату, развилке или противоречию — остальное молча в журнал")]
+    public void Operator_is_addressed_only_on_result_fork_or_contradiction()
+    {
+        var rule = RuleLineWithMarker(OrchestratorText(), "Пишешь оператору только по результату");
+
+        rule.Should().ContainEquivalentOf("результату");
+        rule.Should().ContainEquivalentOf("развилке");
+        rule.Should().ContainEquivalentOf("противоречию");
+        rule.Should().ContainEquivalentOf("молча в журнал");
+    }
+
+    [Fact(DisplayName = "Потолок длины: реплика — 3 строки, сводка и отчёт — 7 строк")]
+    public void Operator_language_rule_caps_message_length()
+    {
+        var rule = RuleLineWithMarker(OrchestratorText(), "Пишешь оператору только по результату");
+
+        rule.Should().Contain("3 строк");
+        rule.Should().Contain("7 строк");
+    }
 }

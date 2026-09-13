@@ -204,6 +204,9 @@ The script reads two variables from the environment. A Throne-spawned session ha
 
 ## Rules
 
+- If your own tag's repository is Throne itself, run `scripts/check-deploy.sh` before spawning any
+  executor; on drift, reinstall with `scripts/install-local.sh` first. A stale local instance hands
+  every executor old prompts and old skills without anyone noticing.
 - Do not write intent status from the agent. Throne derives status from session hooks.
 - An orchestrator intent carries exactly one tag. Several tags is a broken setup — the CLI refuses
   instead of picking one.

@@ -30,11 +30,16 @@ internal static class StatusCommand
             return 0;
         }
 
-        var version = await HealthProbe.TryGetVersionAsync(state.Url, ct) ?? Display(state.Version);
+        var info = await HealthProbe.TryGetVersionAsync(state.Url, ct);
+        var version = string.IsNullOrEmpty(info?.Version) ? Display(state.Version) : info.Version;
         Console.WriteLine("status:  running");
         Console.WriteLine($"pid:     {state.Pid}");
         Console.WriteLine($"url:     {Display(state.Url)}");
         Console.WriteLine($"version: {version}");
+        if (!string.IsNullOrEmpty(info?.ManifestHash))
+        {
+            Console.WriteLine($"manifest: {info.ManifestHash}");
+        }
         return 0;
     }
 

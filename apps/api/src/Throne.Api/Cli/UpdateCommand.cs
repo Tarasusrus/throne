@@ -82,5 +82,6 @@ internal static class UpdateCommand
         return 0;
     }
 
-    private static string Normalize(string version) => version.Trim().TrimStart('v', 'V');
+    private static string Normalize(string version) =>
+        ThroneVersion.WithoutBuildMetadata(version.Trim().TrimStart('v', 'V'));
 }

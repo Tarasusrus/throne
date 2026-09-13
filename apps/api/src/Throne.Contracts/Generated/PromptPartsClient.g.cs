@@ -31,7 +31,7 @@ namespace Throne.PromptParts.Contracts.Generated
     {
 
         /// <summary>
-        /// Embedded run mode (work | interview | review | free | orchestrator).
+        /// Embedded run mode (work | interview | review | free | orchestrator | verify).
         /// </summary>
         [System.Text.Json.Serialization.JsonPropertyName("mode")]
         [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]

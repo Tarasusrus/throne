@@ -180,6 +180,7 @@ public sealed class RunPreflightSpawn(
         TerminalRunModes.Work => IntentStatusNames.Work,
         TerminalRunModes.Free => IntentStatusNames.Work,
         TerminalRunModes.Orchestrator => IntentStatusNames.Work,
+        TerminalRunModes.Verify => IntentStatusNames.Work,
         TerminalRunModes.Review => IntentStatusNames.Work,
         TerminalRunModes.Interview => IntentStatusNames.Interview,
         _ => null,

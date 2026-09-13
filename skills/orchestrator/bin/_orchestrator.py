@@ -104,9 +104,11 @@ def validate_effort(value: str) -> None:
         )
 
 
-def build_run_payload(preview: dict, vendor: str, model: str, effort: str) -> dict:
+def build_run_payload(
+    preview: dict, vendor: str, model: str, effort: str, mode: str = "work"
+) -> dict:
     payload = {
-        "mode": "work",
+        "mode": mode,
         # Сервер не пересобирает промпт из id частей — везём собранный текст.
         "system_prompt": preview["system_prompt"],
         "user_prompt": preview["user_prompt"],
@@ -126,9 +128,63 @@ def build_run_payload(preview: dict, vendor: str, model: str, effort: str) -> di
     return payload
 
 
-def run_payload(vendor: str, model: str, effort: str) -> None:
+def run_payload(vendor: str, model: str, effort: str, mode: str) -> None:
     preview = json.load(sys.stdin)
-    print(json.dumps(build_run_payload(preview, vendor, model, effort), ensure_ascii=False))
+    print(json.dumps(build_run_payload(preview, vendor, model, effort, mode), ensure_ascii=False))
+
+
+# Ревьюер знает ровно три вещи из постановки исполнителя (ADR-0054 §8): ветку,
+# DoD и проблему. Всё остальное — `## Для агента`, `## Отчёт`, заголовок задачи —
+# вырезается, чтобы вердикт не опирался на самооценку исполнителя.
+REVIEW_SECTIONS = ("Ветка", "Definition of Done", "Для человека")
+REVIEW_REQUIRED = ("Ветка", "Definition of Done")
+
+
+def _split_sections(text: str) -> dict[str, list[str]]:
+    """Секции по заголовкам `## `; заголовок внутри code fence секцию не открывает."""
+    sections: dict[str, list[str]] = {}
+    current = None
+    fenced = False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            current = line[3:].strip()
+            sections[current] = []
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def review_body(executor_text: str) -> str:
+    sections = _split_sections(executor_text)
+    missing = [name for name in REVIEW_REQUIRED if not "\n".join(sections.get(name, [])).strip()]
+    if missing:
+        raise ValueError(
+            "в теле исполнителя нет секции " + " и ".join("## " + m for m in missing)
+            + " — без неё ревьюеру нечего проверять"
+        )
+    branch = "\n".join(sections["Ветка"]).strip()
+    parts = ["[REVIEW] независимое ревью ветки " + branch]
+    for name in REVIEW_SECTIONS:
+        if name in sections:
+            parts.append("## " + name + "\n" + "\n".join(sections[name]).strip())
+    return "\n\n".join(parts) + "\n"
+
+
+def create_payload(body_file: str, tag: str) -> None:
+    with open(body_file, encoding="utf-8") as handle:
+        text = handle.read()
+    print(json.dumps({"text": text, "tag_names": [tag]}, ensure_ascii=False))
+
+
+def review_body_cmd() -> None:
+    intent = json.load(sys.stdin)
+    try:
+        print(review_body(intent["text"]), end="")
+    except ValueError as exc:
+        sys.exit("throne-orchestrator: " + str(exc))
 
 
 def run_result(target: str) -> None:
@@ -209,7 +265,12 @@ def main() -> None:
         assert_tag(sys.argv[2], sys.argv[3])
     elif command == "run-payload":
         effort = sys.argv[4] if len(sys.argv) > 4 else ""
-        run_payload(sys.argv[2], sys.argv[3], effort)
+        mode = sys.argv[5] if len(sys.argv) > 5 else "work"
+        run_payload(sys.argv[2], sys.argv[3], effort, mode)
+    elif command == "review-body":
+        review_body_cmd()
+    elif command == "create-payload":
+        create_payload(sys.argv[2], sys.argv[3])
     elif command == "validate-effort":
         try:
             validate_effort(sys.argv[2] if len(sys.argv) > 2 else "")

@@ -117,7 +117,14 @@ public partial class RunPreflightOrchestratorTests
             // (delivery mechanics are covered directly in RunPreflightPromptDeliveryTests).
             Delivery = Substitute.For<IRunPreflightPromptDelivery>();
             _hookAdapters =
-                [new StubHookAdapter(TerminalAgentCatalog.VendorClaude, ["--settings", SettingsPath], p => SpawnedSystemPrompt = p)];
+                [new StubHookAdapter(
+                    TerminalAgentCatalog.VendorClaude,
+                    ["--settings", SettingsPath],
+                    (p, packages) =>
+                    {
+                        SpawnedSystemPrompt = p;
+                        SpawnedSkillPackages = packages;
+                    })];
             return new RunPreflightSpawn(
                 Tmux, workspace, TerminalSpawnTestDoubles.EmptyWorkspacePreparer(),
                 _hookAdapters,
@@ -168,6 +175,7 @@ public partial class RunPreflightOrchestratorTests
         public IIntentTerminalLaunchStore LaunchStore { get; }
         public RunPreflightOrchestrator Orchestrator { get; }
         public string? SpawnedSystemPrompt { get; private set; }
+        public IReadOnlyList<SessionSkillPackage> SpawnedSkillPackages { get; private set; } = [];
 
         public VendorLimitSessionResumer Resumer() =>
             new(Tmux, LaunchStore, new StubWorkspaceRoot(WorkspaceRoot), _hookAdapters, Orchestrator);
@@ -250,7 +258,10 @@ internal static class RunPreflightOrchestratorFixtureStubs
     public const string PersistedRules = "RULES persisted by the previous spawn";
 }
 
-file sealed class StubHookAdapter(string vendor, IReadOnlyList<string> args, Action<string?>? onSpawn = null)
+file sealed class StubHookAdapter(
+    string vendor,
+    IReadOnlyList<string> args,
+    Action<string?, IReadOnlyList<SessionSkillPackage>>? onSpawn = null)
     : ISessionHookAdapter
 {
     public string Vendor => vendor;
@@ -263,7 +274,7 @@ file sealed class StubHookAdapter(string vendor, IReadOnlyList<string> args, Act
     public Task<IReadOnlyList<string>> PrepareSpawnArgsAsync(string intentId, string workspacePath,
         string mode, string? systemPrompt, IReadOnlyList<SessionSkillPackage> skillPackages, CancellationToken ct)
     {
-        onSpawn?.Invoke(systemPrompt);
+        onSpawn?.Invoke(systemPrompt, skillPackages);
         return Task.FromResult(args);
     }
 

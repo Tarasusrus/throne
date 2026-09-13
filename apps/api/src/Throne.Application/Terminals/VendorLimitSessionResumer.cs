@@ -9,7 +9,11 @@ namespace Throne.Application.Terminals;
 /// <c>StopFailure rate_limit</c> and the hook handler counts a repeat; if it is off, the agent
 /// resumes and <c>PostToolUse</c> closes the pause. A relaunch re-runs the normal spawn pipeline
 /// with the persisted launch axis, the adapter's continue switch and the rules block the previous
-/// spawn left in the workspace, then delivers the same continuation prompt.
+/// spawn left in the workspace, then delivers the same continuation prompt. The per-mode skill
+/// selection and the review binding come from the same launch record: the spawn pipeline resets
+/// the workspace staging and re-persists whatever selection it is handed, so passing nothing would
+/// strip the agent's tools (no <c>throne-intent</c>, no review artifact) and overwrite the
+/// remembered choice with an empty set.
 /// </summary>
 public sealed class VendorLimitSessionResumer(
     ITmuxSessionManager tmux,
@@ -46,11 +50,14 @@ public sealed class VendorLimitSessionResumer(
             systemPrompt = await adapter.ReadPersistedSystemPromptAsync(workspacePath, ct);
         }
 
+        launch.SelectedSkillIdsByMode.TryGetValue(launch.Mode, out var selectedSkillIds);
         await preflight.RunAsync(
             pause.IntentId,
             launch.Mode,
             new TerminalLaunchInput(launch.Vendor, launch.Model, launch.Effort, ResumeConversation: true),
             new TerminalSpawnPrompt(systemPrompt, ContinuationPrompt, SelectedPartIds: null, IntentTextSave: null),
-            ct);
+            selectedSkillIds,
+            ct,
+            launch.ReviewBindingId);
     }
 }

@@ -139,6 +139,27 @@ public class EfCoreIntentTerminalLaunchStoreTests(SqliteFixture fixture)
         loaded!.SelectedSkillIdsByMode.Should().BeEmpty();
     }
 
+    [Fact(DisplayName = "Привязка ревью пишется с осью, переживает round-trip и сбрасывается спавном без ревью")]
+    public async Task Review_binding_round_trips_and_clears()
+    {
+        var (_, store) = await NewScopeAsync();
+
+        await store.SaveAsync(
+            "i-review",
+            Launch(Review, "claude", "opus", "high") with { ReviewBindingId = "b-42" },
+            CancellationToken.None);
+        var withBinding = await store.GetAsync("i-review", CancellationToken.None);
+        withBinding!.ReviewBindingId.Should().Be("b-42");
+
+        await store.SaveSelectedSkillIdsAsync("i-review", Review, ["review"], CancellationToken.None);
+        var afterSkills = await store.GetAsync("i-review", CancellationToken.None);
+        afterSkills!.ReviewBindingId.Should().Be("b-42", "выбор навыков ось не трогает");
+
+        await store.SaveAsync("i-review", Launch(Work, "claude", "opus", "high"), CancellationToken.None);
+        var cleared = await store.GetAsync("i-review", CancellationToken.None);
+        cleared!.ReviewBindingId.Should().BeNull();
+    }
+
     private static TerminalLaunchRecord Launch(string mode, string vendor, string model, string? effort) =>
         new(mode, vendor, model, effort, EmptySelections);
 

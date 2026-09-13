@@ -78,7 +78,12 @@ public sealed class RunPreflightOrchestrator(
             RunPreflightSession.CollectReadyRepoPaths(waitResult.Bindings),
             intent.TagIds,
             ct);
-        await launches.SaveAsync(intent.Id.Value, launchPlan, ct);
+        // The resolved review target rides along with the axis so a vendor-limit relaunch can
+        // re-aim the review artifact at the same binding (ADR-0055).
+        await launches.SaveAsync(
+            intent.Id.Value,
+            launchPlan with { Record = launchPlan.Record with { ReviewBindingId = skillPlan.ReviewBindingId } },
+            ct);
         await skills.SaveAsync(intent.Id.Value, mode, skillPlan, ct);
         return RunPreflightSession.BuildResult(
             intent.Id.Value, sessionName, TerminalSessionStates.Running, waitResult.Bindings, blockingBindings: [],

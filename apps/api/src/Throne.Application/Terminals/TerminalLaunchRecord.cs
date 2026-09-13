@@ -16,10 +16,17 @@ namespace Throne.Application.Terminals;
 /// while the session is alive (liveness stays tmux-derived, never stored). Empty map when the
 /// intent was never launched.
 /// </para>
+/// <para>
+/// <see cref="ReviewBindingId"/> is the repository binding the last spawn's review artifact was
+/// aimed at (null when the spawn carried no review skill). A relaunch after a vendor-limit pause
+/// (ADR-0055) re-runs the spawn pipeline with this id so a multi-binding intent keeps reviewing
+/// the same PR instead of silently falling back to the first binding.
+/// </para>
 /// </summary>
 public sealed record TerminalLaunchRecord(
     string Mode,
     string Vendor,
     string Model,
     string? Effort,
-    IReadOnlyDictionary<string, IReadOnlyList<string>> SelectedSkillIdsByMode);
+    IReadOnlyDictionary<string, IReadOnlyList<string>> SelectedSkillIdsByMode,
+    string? ReviewBindingId = null);

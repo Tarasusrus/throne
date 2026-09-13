@@ -116,15 +116,8 @@ public partial class RunPreflightOrchestratorTests
             // orchestration can be asserted on "delivery kicked" without racing the background task
             // (delivery mechanics are covered directly in RunPreflightPromptDeliveryTests).
             Delivery = Substitute.For<IRunPreflightPromptDelivery>();
-            _hookAdapters =
-                [new StubHookAdapter(
-                    TerminalAgentCatalog.VendorClaude,
-                    ["--settings", SettingsPath],
-                    (p, packages) =>
-                    {
-                        SpawnedSystemPrompt = p;
-                        SpawnedSkillPackages = packages;
-                    })];
+            _hookAdapters = [new StubHookAdapter(TerminalAgentCatalog.VendorClaude, ["--settings", SettingsPath],
+                (p, k) => (SpawnedSystemPrompt, SpawnedSkillPackages) = (p, k))];
             return new RunPreflightSpawn(
                 Tmux, workspace, TerminalSpawnTestDoubles.EmptyWorkspacePreparer(),
                 _hookAdapters,

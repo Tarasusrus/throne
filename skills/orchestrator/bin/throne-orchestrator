@@ -10,7 +10,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   throne-orchestrator list [--status STATUS]... [--json]
-  throne-orchestrator run --intent ID [--vendor V] [--model M]
+  throne-orchestrator run --intent ID [--vendor V] [--model M] [--effort E]
   throne-orchestrator stop --intent ID
   throne-orchestrator watch [--wait] [--timeout SECONDS]
   throne-orchestrator accept --repo PATH --branch NAME [--into BRANCH] [--check CMD]
@@ -21,6 +21,12 @@ list — интенты тега текущего интента: id, стату
 run — поднять work-сессию исполнителя на интенте своего тега. Сначала preview
 (сервер сам контекст не собирает), потом run с собранным промптом. Живая сессия —
 не ошибка: команда сообщает «уже работает» и выходит с кодом 0.
+
+--effort (low|medium|high|xhigh) — режим рассуждений исполнителя, ось наравне с
+--model. Без флага payload не трогается вовсе — сервер сам возьмёт дефолт
+вендора. Неизвестное значение отбивается до единого HTTP-вызова. У вендора без
+оси эффорта (сейчас opencode) сервер сам роняет любой присланный effort — в
+argv исполнителя флаг не долетает; это поведение сервера, не команды.
 
 stop — погасить сессию исполнителя. Идемпотентно.
 
@@ -146,16 +152,25 @@ assert_own_tag() {
 }
 
 cmd_run() {
-  local target="" vendor="" model=""
+  local target="" vendor="" model="" effort=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --intent) [[ $# -ge 2 ]] || die "--intent requires a value"; target="$2"; shift 2 ;;
       --vendor) [[ $# -ge 2 ]] || die "--vendor requires a value"; vendor="$2"; shift 2 ;;
       --model) [[ $# -ge 2 ]] || die "--model requires a value"; model="$2"; shift 2 ;;
+      --effort) [[ $# -ge 2 ]] || die "--effort requires a value"; effort="$2"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
   done
   [[ -n "${target}" ]] || die "run requires --intent ID"
+
+  # Неизвестный effort отбивается здесь — до assert_own_tag и до preview, то
+  # есть до первого HTTP-вызова этой команды, а не после потраченного round-trip.
+  if [[ -n "${effort}" ]]; then
+    local effort_err
+    effort_err="$(python3 "${HERE}/_orchestrator.py" validate-effort "${effort}" 2>&1)" \
+      || die "${effort_err}"
+  fi
   assert_own_tag "${target}"
 
   # Сервер не собирает system_prompt на run: без preview исполнитель стартует без
@@ -163,7 +178,7 @@ cmd_run() {
   http_post_or_fail "/api/v1/intents/${target}/terminal/preview" '{"mode":"work"}'
   local payload
   payload="$(printf '%s' "${HTTP_BODY}" \
-    | python3 "${HERE}/_orchestrator.py" run-payload "${vendor}" "${model}")"
+    | python3 "${HERE}/_orchestrator.py" run-payload "${vendor}" "${model}" "${effort}")"
 
   http_post "/api/v1/intents/${target}/terminal/run" "${payload}"
   if [[ "${HTTP_STATUS}" == "409" ]]; then

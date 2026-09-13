@@ -91,8 +91,20 @@ def assert_tag(expected: str, target: str) -> None:
         )
 
 
-def run_payload(vendor: str, model: str) -> None:
-    preview = json.load(sys.stdin)
+# Тот же словарь, что и TerminalReasoningEffort на сервере (low/medium/high/xhigh) —
+# claude-only "max" сюда намеренно не входит, ось запуска общая для всех вендоров.
+KNOWN_EFFORTS = ("low", "medium", "high", "xhigh")
+
+
+def validate_effort(value: str) -> None:
+    """Пустая строка — флаг --effort не передан, это валидное состояние."""
+    if value and value not in KNOWN_EFFORTS:
+        raise ValueError(
+            "неизвестный effort '" + value + "' — допустимо: " + ", ".join(KNOWN_EFFORTS)
+        )
+
+
+def build_run_payload(preview: dict, vendor: str, model: str, effort: str) -> dict:
     payload = {
         "mode": "work",
         # Сервер не пересобирает промпт из id частей — везём собранный текст.
@@ -109,7 +121,14 @@ def run_payload(vendor: str, model: str) -> None:
         payload["vendor"] = vendor
     if model:
         payload["model"] = model
-    print(json.dumps(payload, ensure_ascii=False))
+    if effort:
+        payload["effort"] = effort
+    return payload
+
+
+def run_payload(vendor: str, model: str, effort: str) -> None:
+    preview = json.load(sys.stdin)
+    print(json.dumps(build_run_payload(preview, vendor, model, effort), ensure_ascii=False))
 
 
 def run_result(target: str) -> None:
@@ -189,7 +208,13 @@ def main() -> None:
     elif command == "assert-tag":
         assert_tag(sys.argv[2], sys.argv[3])
     elif command == "run-payload":
-        run_payload(sys.argv[2], sys.argv[3])
+        effort = sys.argv[4] if len(sys.argv) > 4 else ""
+        run_payload(sys.argv[2], sys.argv[3], effort)
+    elif command == "validate-effort":
+        try:
+            validate_effort(sys.argv[2] if len(sys.argv) > 2 else "")
+        except ValueError as exc:
+            sys.exit(str(exc))
     elif command == "run-result":
         run_result(sys.argv[2])
     elif command == "watch-snapshot":

@@ -60,6 +60,18 @@ public class TerminalSessionKillServiceTests
         await fixture.Tmux.DidNotReceive().SpawnAsync(Arg.Any<TmuxSpawnRequest>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact(DisplayName = "Kill снимает паузу по лимиту: убитой сессии нечего возобновлять")]
+    public async Task Kill_clears_vendor_limit_pause()
+    {
+        var fixture = new Fixture().Setup(capabilityEnabled: true, intentExists: true);
+        fixture.Pauses.Put(new VendorLimitPause(IntentIdValue, "claude", Now, Now.AddHours(1), 1, "limit", null, null, 0));
+
+        var result = await fixture.Service.KillAsync(IntentIdValue, CancellationToken.None);
+
+        fixture.Pauses.Find(IntentIdValue).Should().BeNull();
+        result.LimitPause.Should().BeNull();
+    }
+
     private static IntentRepositoryBinding NewBinding(string cloneStatus)
     {
         var snapshot = new IntentRepositoryBindingSnapshot(
@@ -101,8 +113,11 @@ public class TerminalSessionKillServiceTests
                 Substitute.For<IDomainEventDispatcher>());
             var guards = new RunPreflightGuards(Intents, Detection, spawn);
             LaunchStore = Substitute.For<IIntentTerminalLaunchStore>();
-            Service = new TerminalSessionKillService(guards, Bindings, LaunchStore, spawn);
+            Pauses = new InMemoryVendorLimitPauseStore();
+            Service = new TerminalSessionKillService(guards, Bindings, LaunchStore, spawn, Pauses);
         }
+
+        public InMemoryVendorLimitPauseStore Pauses { get; }
 
         public IIntentRepository Intents { get; }
         public ICapabilityDetectionCache Detection { get; }

@@ -325,7 +325,7 @@ namespace Throne.Terminal.Contracts.Generated
 
     /// <summary>
     /// Lifecycle of the per-intent tmux session, derived from `tmux has-session` at observation time.
-    /// <br/>`spawning` — pre-flight finished, `tmux new -ADs` not yet observed alive. `running` — session is alive. `blocked` — at least one binding is `failed` / `broken`; spawn was skipped. `exited` — session was alive previously but has since been torn down.
+    /// <br/>`spawning` — pre-flight finished, `tmux new -ADs` not yet observed alive. `running` — session is alive. `paused_by_limit` — session is alive but waits for the vendor's usage limit to reset (ADR-0055); `limit_pause` says until when. Attachable like `running`. `blocked` — at least one binding is `failed` / `broken`; spawn was skipped. `exited` — session was alive previously but has since been torn down.
     /// <br/>
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.7.1.0 (NJsonSchema v11.6.1.0 (Newtonsoft.Json v13.0.0.0))")]
@@ -340,13 +340,53 @@ namespace Throne.Terminal.Contracts.Generated
         [System.Runtime.Serialization.EnumMember(Value = @"running")]
         Running = 1,
 
+        [System.Text.Json.Serialization.JsonStringEnumMemberName(@"paused_by_limit")]
+        [System.Runtime.Serialization.EnumMember(Value = @"paused_by_limit")]
+        Paused_by_limit = 2,
+
         [System.Text.Json.Serialization.JsonStringEnumMemberName(@"blocked")]
         [System.Runtime.Serialization.EnumMember(Value = @"blocked")]
-        Blocked = 2,
+        Blocked = 3,
 
         [System.Text.Json.Serialization.JsonStringEnumMemberName(@"exited")]
         [System.Runtime.Serialization.EnumMember(Value = @"exited")]
-        Exited = 3,
+        Exited = 4,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.7.1.0 (NJsonSchema v11.6.1.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class TerminalLimitPauseDto
+    {
+
+        /// <summary>
+        /// When the vendor said the limit resets (or detection + default retry).
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("resume_at")]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        public System.DateTimeOffset Resume_at { get; set; }
+
+        /// <summary>
+        /// Consecutive limit hits in the repeat window; the ceiling escalates to `awaiting_operator`.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("attempts")]
+        [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)]
+        public int Attempts { get; set; }
+
+        /// <summary>
+        /// The vendor line as received, verbatim.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        public string Message { get; set; }
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [System.Text.Json.Serialization.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
 
     }
 
@@ -589,6 +629,13 @@ namespace Throne.Terminal.Contracts.Generated
         /// </summary>
         [System.Text.Json.Serialization.JsonPropertyName("blocking_bindings")]
         public System.Collections.Generic.ICollection<string> Blocking_bindings { get; set; }
+
+        /// <summary>
+        /// Present while `session_state=paused_by_limit` (and, with `resume_at` in the past, until the session provably resumes): until when the vendor limit holds the session (ADR-0055).
+        /// <br/>
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("limit_pause")]
+        public TerminalLimitPauseDto Limit_pause { get; set; }
 
         /// <summary>
         /// Resolved launch axis (mode/vendor/model/effort) of this intent. On `run` it echoes the axis the spawn actually used (defaults applied). On the status probe it is the persisted last-used axis: with a live session those are the running session's real parameters; otherwise the choice the controls pre-fill from. Null only when the intent was never launched (no persisted record).
@@ -984,6 +1031,10 @@ namespace Throne.Terminal.Contracts.Generated
         [System.Text.Json.Serialization.JsonStringEnumMemberName(@"PostToolUse")]
         [System.Runtime.Serialization.EnumMember(Value = @"PostToolUse")]
         PostToolUse = 4,
+
+        [System.Text.Json.Serialization.JsonStringEnumMemberName(@"StopFailure")]
+        [System.Runtime.Serialization.EnumMember(Value = @"StopFailure")]
+        StopFailure = 5,
 
     }
 

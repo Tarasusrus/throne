@@ -12,7 +12,8 @@ public sealed class TerminalSessionKillService(
     RunPreflightGuards guards,
     IIntentRepositoryBindingRepository bindings,
     IIntentTerminalLaunchStore launchStore,
-    RunPreflightSpawn spawner)
+    RunPreflightSpawn spawner,
+    IVendorLimitPauseStore pauses)
 {
     public async Task<RunPreflightResult> KillAsync(string intentId, CancellationToken ct)
     {
@@ -21,6 +22,8 @@ public sealed class TerminalSessionKillService(
         var sessionName = TmuxSessionName.For(intent.Id.Value);
 
         await spawner.KillSessionAsync(intent.Id.Value, ct);
+        // An operator kill ends the pause too: nothing is left to resume (ADR-0055).
+        pauses.Remove(intent.Id.Value);
 
         var snapshot = await bindings.FindByIntentAsync(intent.Id, ct);
         var launch = await launchStore.GetAsync(intent.Id.Value, ct);

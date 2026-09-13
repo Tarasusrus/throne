@@ -302,6 +302,16 @@ paths:
         events. The `mode` query carries that spawn phase so the return is stateless — the hook
         knows its own session mode. Bundle-less `dream` passes through without a status change.
         Codex still injects only the turn-boundary pair.
+
+        Vendor limit (ADR-0055): Claude fires `StopFailure` instead of `Stop` when an API error
+        ended the turn; Throne binds it with matcher `rate_limit` and reads the body
+        (`error`, `last_assistant_message` with the reset time) to put the session into a limit
+        pause — the intent status is not touched. Claude's own auto-continue outcome arrives as
+        `Notification` with `notification_type` `quota_auto_resume_fired|stale|disabled`; those
+        never park the intent (`fired` ends the pause). The body is the vendor hook's stdin JSON
+        forwarded verbatim and is deliberately not modelled as a request body: it is read
+        tolerantly (any shape, empty, or absent — OpenCode sends none) and only the top-level
+        string fields `error`, `last_assistant_message`, `notification_type`, `message` are used.
       parameters:
         - in: path
           name: intent_id
@@ -319,6 +329,7 @@ paths:
               - SessionReady
               - Notification
               - PostToolUse
+              - StopFailure
         - in: query
           name: mode
           required: false
@@ -573,6 +584,7 @@ components:
       enum:
         - spawning
         - running
+        - paused_by_limit
         - blocked
         - exited
       description: >
@@ -581,8 +593,26 @@ components:
 
         `spawning` — pre-flight finished, `tmux new -ADs` not yet observed alive.
         `running` — session is alive.
+        `paused_by_limit` — session is alive but waits for the vendor's usage limit to reset
+        (ADR-0055); `limit_pause` says until when. Attachable like `running`.
         `blocked` — at least one binding is `failed` / `broken`; spawn was skipped.
         `exited` — session was alive previously but has since been torn down.
+    TerminalLimitPauseDto:
+      type: object
+      required: [resume_at, attempts, message]
+      properties:
+        resume_at:
+          type: string
+          format: date-time
+          description: When the vendor said the limit resets (or detection + default retry).
+        attempts:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Consecutive limit hits in the repeat window; the ceiling escalates to `awaiting_operator`.
+        message:
+          type: string
+          description: The vendor line as received, verbatim.
     TerminalAgentVendor:
       type: string
       minLength: 1
@@ -758,6 +788,13 @@ components:
           description: >
             IDs of bindings whose `clone_status` is `failed` or `broken`. Present when
             `session_state=blocked`; the UI uses them to render an actionable error per row.
+        limit_pause:
+          nullable: true
+          description: >
+            Present while `session_state=paused_by_limit` (and, with `resume_at` in the past, until
+            the session provably resumes): until when the vendor limit holds the session (ADR-0055).
+          allOf:
+            - $ref: '#/components/schemas/TerminalLimitPauseDto'
         launch:
           nullable: true
           description: >

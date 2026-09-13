@@ -15,7 +15,7 @@ public interface IIntentTerminalLaunchStore
     Task<TerminalLaunchRecord?> GetAsync(string intentId, CancellationToken ct);
 
     /// <summary>
-    /// Upsert the launch axis for the intent (mode/vendor/model/effort only).
+    /// Upsert the launch axis for the intent (mode/vendor/model/effort + review binding).
     /// <see cref="TerminalLaunchRecord.SelectedSkillIdsByMode"/> is intentionally NOT touched
     /// — the per-mode selection survives a respawn until explicitly updated via
     /// <see cref="SaveSelectedSkillIdsAsync"/>.

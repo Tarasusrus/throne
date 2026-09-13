@@ -46,17 +46,14 @@ public partial class RunPreflightOrchestratorTests
         public Fixture()
         {
             Intents = Substitute.For<IIntentRepository>();
-            Detection = Substitute.For<ICapabilityDetectionCache>();
             Bindings = Substitute.For<IIntentRepositoryBindingRepository>();
-            Tags = Substitute.For<ITagRepository>();
-            Providers = Substitute.For<IGitProviderRegistry>();
             Tmux = Substitute.For<ITmuxSessionManager>();
             var workspace = new StubWorkspaceRoot(WorkspaceRoot);
             var clock = new FixedClock(Now);
             var uow = new PassthroughUnitOfWork();
             var (bindingService, cloneQueue) = BuildBindingService(workspace, clock, uow);
             var transitions = new RepositoryCloneTransitionWriter(Bindings, uow, clock);
-            var autoBind = new RunPreflightAutoBind(new TagDefaultsUnion(Tags), Bindings, bindingService);
+            var autoBind = new RunPreflightAutoBind(new TagDefaultsUnion(_tags), Bindings, bindingService);
             var queue = new RunPreflightCloneScheduler(Bindings, cloneQueue, transitions);
             var runPreflightOptions = new RunPreflightOptions
             {
@@ -66,7 +63,7 @@ public partial class RunPreflightOrchestratorTests
             };
             var cloneWait = new RunPreflightCloneWait(Bindings, runPreflightOptions, clock);
             var spawn = BuildSpawn(workspace, clock, uow, runPreflightOptions);
-            var guards = new RunPreflightGuards(Intents, Detection, spawn);
+            var guards = new RunPreflightGuards(Intents, _detection, spawn);
             var launchResolver = BuildLaunchResolver();
             var promptGate = BuildPromptGate(clock, uow);
             LaunchStore = Substitute.For<IIntentTerminalLaunchStore>();
@@ -82,7 +79,7 @@ public partial class RunPreflightOrchestratorTests
         private (RepositoryBindingService Service, IRepositoryCloneRequests CloneQueue) BuildBindingService(
             IWorkspaceRootProvider workspace, TimeProvider clock, IUnitOfWork uow)
         {
-            var resolver = new RepositoryBindingResolver(Intents, Bindings, Providers);
+            var resolver = new RepositoryBindingResolver(Intents, Bindings, _providers);
             var persistence = new RepositoryBindingPersistence(
                 Bindings, Substitute.For<IRepositoryRegistry>(), uow, clock, workspace,
                 Substitute.For<IWorkspaceDirectoryRemover>(),
@@ -119,13 +116,11 @@ public partial class RunPreflightOrchestratorTests
             // orchestration can be asserted on "delivery kicked" without racing the background task
             // (delivery mechanics are covered directly in RunPreflightPromptDeliveryTests).
             Delivery = Substitute.For<IRunPreflightPromptDelivery>();
-            var hookAdapters = new ISessionHookAdapter[]
-            {
-                new StubHookAdapter(TerminalAgentCatalog.VendorClaude, ["--settings", SettingsPath]),
-            };
+            _hookAdapters = [new StubHookAdapter(TerminalAgentCatalog.VendorClaude, ["--settings", SettingsPath],
+                (p, k) => (SpawnedSystemPrompt, SpawnedSkillPackages) = (p, k))];
             return new RunPreflightSpawn(
                 Tmux, workspace, TerminalSpawnTestDoubles.EmptyWorkspacePreparer(),
-                hookAdapters,
+                _hookAdapters,
                 Delivery,
                 options,
                 TerminalSpawnTestDoubles.VendorCatalog(),
@@ -161,15 +156,22 @@ public partial class RunPreflightOrchestratorTests
                 promptResolver, new ReplaceIntentTextHandler(Intents, uow, clock));
         }
 
+        private readonly ICapabilityDetectionCache _detection = Substitute.For<ICapabilityDetectionCache>();
+        private readonly ITagRepository _tags = Substitute.For<ITagRepository>();
+        private readonly IGitProviderRegistry _providers = Substitute.For<IGitProviderRegistry>();
+        private IReadOnlyList<ISessionHookAdapter> _hookAdapters = [];
+
         public IIntentRepository Intents { get; }
-        public ICapabilityDetectionCache Detection { get; }
         public IIntentRepositoryBindingRepository Bindings { get; }
-        public ITagRepository Tags { get; }
-        public IGitProviderRegistry Providers { get; }
         public ITmuxSessionManager Tmux { get; }
         public IRunPreflightPromptDelivery Delivery { get; private set; } = default!;
         public IIntentTerminalLaunchStore LaunchStore { get; }
         public RunPreflightOrchestrator Orchestrator { get; }
+        public string? SpawnedSystemPrompt { get; private set; }
+        public IReadOnlyList<SessionSkillPackage> SpawnedSkillPackages { get; private set; } = [];
+
+        public VendorLimitSessionResumer Resumer() =>
+            new(Tmux, LaunchStore, new StubWorkspaceRoot(WorkspaceRoot), _hookAdapters, Orchestrator);
 
         public Fixture Setup(
             bool capabilityEnabled = false,
@@ -184,11 +186,11 @@ public partial class RunPreflightOrchestratorTests
             {
                 // Тег с дефолтами тянет за собой весь путь auto-bind: провайдер обязан
                 // резолвиться и быть авторизован, иначе BindAsync падает до вставки.
-                Tags.GetByIdAsync(Arg.Any<TagId>(), Arg.Any<CancellationToken>())
+                _tags.GetByIdAsync(Arg.Any<TagId>(), Arg.Any<CancellationToken>())
                     .Returns(Task.FromResult<Tag?>(
                         Tag.Restore(TagOnIntent, "job-hunt", 1, Now, Now, tagDefaults)));
                 var provider = AuthenticatedGitHubProvider();
-                Providers.GetByName(Arg.Any<string>()).Returns(provider);
+                _providers.GetByName(Arg.Any<string>()).Returns(provider);
                 Bindings.CreateAsync(Arg.Any<IntentRepositoryBinding>(), Arg.Any<CancellationToken>())
                     .Returns(ci => Task.FromResult<CreateBindingOutcome>(
                         new CreateBindingOutcome.Created(ci.ArgAt<IntentRepositoryBinding>(0))));
@@ -196,7 +198,7 @@ public partial class RunPreflightOrchestratorTests
 
             // tmux is no longer a carrier capability — the guard reads the detection cache
             // directly. capabilityEnabled mimics «tmux detected» on the host.
-            Detection.GetAsync("tmux", Arg.Any<CancellationToken>())
+            _detection.GetAsync("tmux", Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult<CapabilityProbeResult?>(
                     new CapabilityProbeResult(capabilityEnabled, capabilityEnabled ? "tmux 3.4" : "tmux missing")));
 
@@ -244,13 +246,30 @@ file sealed class StubWorkspaceRoot(string root) : IWorkspaceRootProvider
     public string ResolvedRoot { get; } = root;
 }
 
-file sealed class StubHookAdapter(string vendor, IReadOnlyList<string> args) : ISessionHookAdapter
+internal static class RunPreflightOrchestratorFixtureStubs
+{
+    public const string PersistedRules = "RULES persisted by the previous spawn";
+}
+
+file sealed class StubHookAdapter(
+    string vendor,
+    IReadOnlyList<string> args,
+    Action<string?, IReadOnlyList<SessionSkillPackage>>? onSpawn = null)
+    : ISessionHookAdapter
 {
     public string Vendor => vendor;
 
+    public IReadOnlyList<string> ResumeArgs => ["--continue"];
+
+    public Task<string?> ReadPersistedSystemPromptAsync(string workspacePath, CancellationToken ct) =>
+        Task.FromResult<string?>(RunPreflightOrchestratorFixtureStubs.PersistedRules);
+
     public Task<IReadOnlyList<string>> PrepareSpawnArgsAsync(string intentId, string workspacePath,
-        string mode, string? systemPrompt, IReadOnlyList<SessionSkillPackage> skillPackages, CancellationToken ct) =>
-        Task.FromResult(args);
+        string mode, string? systemPrompt, IReadOnlyList<SessionSkillPackage> skillPackages, CancellationToken ct)
+    {
+        onSpawn?.Invoke(systemPrompt, skillPackages);
+        return Task.FromResult(args);
+    }
 
     public Task CleanupAsync(string intentId, CancellationToken ct) => Task.CompletedTask;
 

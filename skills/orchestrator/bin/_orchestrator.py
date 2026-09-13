@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import os
 import sys
 from urllib.parse import urlencode
@@ -61,12 +62,14 @@ def _title(item: dict) -> str:
     return "(пусто)"
 
 
-def render(cards_dir: str, as_json: bool) -> None:
+def render(cards_dir: str, as_json: bool, sessions_dir: str | None = None) -> None:
     page = json.load(sys.stdin)
     items = page["items"]
+    sessions = _read_sessions(sessions_dir, {item["id"] for item in items})
     if as_json:
         for item in items:
             item["cards"] = _cards(cards_dir, item["id"])
+            item["limit_pause"] = _pause_of(sessions.get(item["id"]))
         print(json.dumps(page, ensure_ascii=False, indent=2))
         return
 
@@ -75,6 +78,9 @@ def render(cards_dir: str, as_json: bool) -> None:
         return
     for item in items:
         line = item["id"] + "  " + item["status"].ljust(18) + "  " + _title(item)
+        pause = _pause_of(sessions.get(item["id"]))
+        if pause:
+            line += "  ⏸ " + _pause_label(pause)
         attached = _cards(cards_dir, item["id"])
         if attached:
             line += "  [" + "; ".join(attached) + "]"
@@ -259,16 +265,64 @@ def _has_verdict(body: dict | None) -> bool:
     return bool("\n".join(_split_sections(body.get("text") or "").get("Вердикт", [])).strip())
 
 
-def build_snapshot(running: set[str], page: list[dict], bodies: dict[str, dict]) -> dict:
-    return {
-        item["id"]: {
+def _pause_of(session: dict | None) -> dict | None:
+    """Пауза по лимиту вендора из ответа /terminal/session (ADR-0055): сессия ждёт
+    сброс. Живая — paused_by_limit; умершая в паузе до перезапуска сторожем — exited,
+    но с limit_pause: это тоже пауза, а не исчезновение. Без сообщения — оно длинное
+    и в срез не нужно."""
+    if not session or session.get("session_state") not in ("paused_by_limit", "exited"):
+        return None
+    pause = session.get("limit_pause") or {}
+    if "resume_at" not in pause:
+        return None
+    return {"resume_at": pause["resume_at"], "attempts": pause.get("attempts", 1)}
+
+
+def build_snapshot(
+    running: set[str],
+    page: list[dict],
+    bodies: dict[str, dict],
+    sessions: dict[str, dict] | None = None,
+) -> dict:
+    sessions = sessions or {}
+    snapshot = {}
+    for item in page:
+        pause = _pause_of(sessions.get(item["id"]))
+        snapshot[item["id"]] = {
             "status": item["status"],
-            "live": item["id"] in running,
+            # Умершая в паузе сессия — ещё исполнитель: Throne перезапустит её сам,
+            # для оркестратора и --wait это то же ожидание, а не «сессии нет».
+            "live": item["id"] in running or pause is not None,
             "title": _title(item),
             "verdict": _is_review(item) and _has_verdict(bodies.get(item["id"])),
+            "pause": pause,
         }
-        for item in page
-    }
+    return snapshot
+
+
+def watch_key(snapshot: dict) -> str:
+    """Ключ сравнения для `watch --wait`: пауза по лимиту — расписание, а не событие.
+    Уход в паузу и выход из неё изменением не считаются; статус, живость, вердикт — считаются."""
+    return json.dumps(
+        {k: {f: v for f, v in row.items() if f != "pause"} for k, row in snapshot.items()},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _pause_label(pause: dict, now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone.utc)
+    try:
+        at = datetime.fromisoformat(pause["resume_at"].replace("Z", "+00:00"))
+    except (ValueError, KeyError, AttributeError):
+        return "пауза до " + str(pause.get("resume_at")) + " (лимит вендора)"
+    local, local_now = at.astimezone(), now.astimezone()
+    clock = local.strftime("%H:%M") if local.date() == local_now.date() else local.strftime("%d.%m %H:%M")
+    label = "пауза до " + clock + " (лимит вендора"
+    attempts = pause.get("attempts", 1)
+    if attempts > 1:
+        label += ", попытка " + str(attempts)
+    return label + ")"
 
 
 def _read_bodies(bodies_dir: str, ids: list[str]) -> dict[str, dict]:
@@ -281,15 +335,51 @@ def _read_bodies(bodies_dir: str, ids: list[str]) -> dict[str, dict]:
     return bodies
 
 
+def _read_sessions(sessions_dir: str | None, ids: set[str]) -> dict[str, dict]:
+    """Ответы /terminal/session живых исполнителей, сложенные bash-обёрткой как <id>.json.
+    Битый или отсутствующий файл — «нет данных о паузе», не ошибка watch."""
+    if not sessions_dir:
+        return {}
+    sessions = {}
+    for intent_id in ids:
+        path = os.path.join(sessions_dir, intent_id + ".json")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                sessions[intent_id] = json.load(handle)
+        except (OSError, ValueError):
+            continue
+    return sessions
+
+
+def session_candidates(running: set[str], page: list[dict]) -> list[str]:
+    """У кого пробник может показать паузу: живые сессии и интенты в work без
+    сессии — последние либо правда без исполнителя, либо умерли в паузе и ждут
+    перезапуска сторожем."""
+    return [
+        item["id"]
+        for item in page
+        if item["id"] in running or item["status"] == "work"
+    ] + [id_ for id_ in sorted(running) if not any(item["id"] == id_ for item in page)]
+
+
+def session_candidates_cmd() -> None:
+    running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
+    page = json.load(sys.stdin)["items"]
+    print(" ".join(session_candidates(running, page)))
+
+
 def verdict_candidates_cmd() -> None:
     running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
     page = json.load(sys.stdin)["items"]
     print(" ".join(verdict_candidates(running, page)))
 
 
-def watch_snapshot(bodies_dir: str) -> None:
+def watch_snapshot(bodies_dir: str, sessions_dir: str | None = None) -> None:
     """Срез: статус каждого интента тега + признак живой сессии + есть ли вердикт
-    у ревью-интента (тела кандидатов лежат в bodies_dir как <id>.json).
+    у ревью-интента (тела кандидатов лежат в bodies_dir как <id>.json) + пауза по
+    лимиту вендора у живых (ответы /terminal/session лежат в sessions_dir).
 
     Печатается отсортированным JSON, чтобы сравнение двух срезов было
     посимвольным — дельта не зависит от порядка, в котором сервер отдал страницу.
@@ -297,7 +387,12 @@ def watch_snapshot(bodies_dir: str) -> None:
     running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
     page = json.load(sys.stdin)["items"]
     bodies = _read_bodies(bodies_dir, verdict_candidates(running, page))
-    print(json.dumps(build_snapshot(running, page, bodies), ensure_ascii=False, sort_keys=True))
+    sessions = _read_sessions(sessions_dir, set(session_candidates(running, page)))
+    print(json.dumps(build_snapshot(running, page, bodies, sessions), ensure_ascii=False, sort_keys=True))
+
+
+def watch_key_cmd() -> None:
+    print(watch_key(json.load(sys.stdin)))
 
 
 def _executors(snapshot: dict) -> list[tuple[str, dict]]:
@@ -311,6 +406,16 @@ def _executors(snapshot: dict) -> list[tuple[str, dict]]:
     ]
 
 
+def _watch_row(intent_id: str, state: dict, now: datetime | None = None) -> str:
+    if state.get("pause"):
+        mark = _pause_label(state["pause"], now)
+    elif state["live"]:
+        mark = "работает"
+    else:
+        mark = "сессии нет"
+    return intent_id + "  " + state["status"].ljust(18) + "  " + mark + "  " + state["title"]
+
+
 def watch_render() -> None:
     snapshot = json.load(sys.stdin)
     rows = _executors(snapshot)
@@ -318,8 +423,7 @@ def watch_render() -> None:
         print("исполнителей нет: ни живых сессий, ни ожидающих ответа")
         return
     for intent_id, state in rows:
-        mark = "работает" if state["live"] else "сессии нет"
-        print(intent_id + "  " + state["status"].ljust(18) + "  " + mark + "  " + state["title"])
+        print(_watch_row(intent_id, state))
 
 
 def watch_delta() -> None:
@@ -351,9 +455,9 @@ def main() -> None:
     elif command == "ids":
         ids()
     elif command == "render":
-        render(sys.argv[2], as_json=False)
+        render(sys.argv[2], as_json=False, sessions_dir=sys.argv[3] if len(sys.argv) > 3 else None)
     elif command == "render-json":
-        render(sys.argv[2], as_json=True)
+        render(sys.argv[2], as_json=True, sessions_dir=sys.argv[3] if len(sys.argv) > 3 else None)
     elif command == "assert-tag":
         assert_tag(sys.argv[2], sys.argv[3])
     elif command == "run-payload":
@@ -373,8 +477,12 @@ def main() -> None:
         run_result(sys.argv[2])
     elif command == "verdict-candidates":
         verdict_candidates_cmd()
+    elif command == "session-candidates":
+        session_candidates_cmd()
     elif command == "watch-snapshot":
-        watch_snapshot(sys.argv[2])
+        watch_snapshot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    elif command == "watch-key":
+        watch_key_cmd()
     elif command == "watch-render":
         watch_render()
     elif command == "watch-delta":

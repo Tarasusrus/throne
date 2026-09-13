@@ -19,13 +19,20 @@ namespace Throne.Application.Terminals;
 ///   spawned with, or the persisted last-used axis on the status probe. Null when the intent
 ///   was never launched.
 /// </param>
+/// <param name="LimitPause">
+///   The intent's vendor-limit pause while it is active (ADR-0055): with a live session the
+///   state is <see cref="TerminalSessionStates.PausedByLimit"/>; with a dead one it stays
+///   <see cref="TerminalSessionStates.Exited"/> and the pause explains what the session was
+///   waiting for. Null once the session provably resumed.
+/// </param>
 public sealed record RunPreflightResult(
     string IntentId,
     string SessionName,
     string SessionState,
     IReadOnlyList<RunPreflightBindingStatus> Bindings,
     IReadOnlyList<string> BlockingBindings,
-    TerminalLaunchRecord? Launch);
+    TerminalLaunchRecord? Launch,
+    VendorLimitPause? LimitPause = null);
 
 /// <summary>
 /// Per-binding snapshot inside <see cref="RunPreflightResult"/>. Mirrors the wire
@@ -44,6 +51,7 @@ public static class TerminalSessionStates
 {
     public const string Spawning = "spawning";
     public const string Running = "running";
+    public const string PausedByLimit = "paused_by_limit";
     public const string Blocked = "blocked";
     public const string Exited = "exited";
 }

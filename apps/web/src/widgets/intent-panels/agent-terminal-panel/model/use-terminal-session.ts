@@ -13,10 +13,20 @@ import {
 
 import type {
   RunIntentTerminalResponse,
+  TerminalLimitPause,
   TerminalRunPayload,
   TerminalSessionState
 } from "./types";
+import {
+  applyLimitPaused,
+  applyLimitResumed,
+  applySessionResponse,
+  isLiveSessionState,
+  type LimitPausedPayload
+} from "./session-state";
 import { deriveTerminalSessionErrorMessage } from "./terminal-error-message";
+
+export { isLiveSessionState } from "./session-state";
 
 export interface TerminalSessionStartedAt {
   /** Per-mount nonce — bumped on every successful spawn so xterm reattaches. */
@@ -38,6 +48,11 @@ export interface TerminalSessionView {
    * (the session is alive — not an error). Set from the realtime event, cleared on the next run.
    */
   submitUnconfirmed: boolean;
+  /**
+   * Пауза по лимиту вендора (ADR-0055): сессия жива в tmux и ждёт сброса лимита. Берётся из
+   * пробника/ответа run и обновляется realtime-событиями `terminal.limit_paused|resumed`.
+   */
+  limitPause: TerminalLimitPause | null;
   isStarting: boolean;
   isStopping: boolean;
   isAttachingSkills: boolean;
@@ -59,6 +74,7 @@ interface InternalState {
   lastResponse: RunIntentTerminalResponse | null;
   error: string | null;
   submitUnconfirmed: boolean;
+  limitPause: TerminalLimitPause | null;
   startedAt: TerminalSessionStartedAt | null;
 }
 
@@ -67,6 +83,7 @@ const INITIAL: InternalState = {
   lastResponse: null,
   error: null,
   submitUnconfirmed: false,
+  limitPause: null,
   startedAt: null
 };
 
@@ -88,31 +105,7 @@ export function useTerminalSession(
 
   const apply = useCallback(
     (response: RunIntentTerminalResponse, fromProbe = false) => {
-      setInternal((prev) => {
-        const hasLiveSession =
-          response.session_state === "running" ||
-          response.session_state === "spawning";
-        const nextAttempt = hasLiveSession
-          ? (prev.startedAt?.attempt ?? 0) + 1
-          : (prev.startedAt?.attempt ?? 0);
-        return {
-          state:
-            fromProbe && response.session_state === "exited"
-              ? "idle"
-              : response.session_state,
-          lastResponse: response,
-          error:
-            response.session_state === "blocked"
-              ? "Клон части репозиториев не готов — спавн агента невозможен."
-              : null,
-          // A fresh run/probe response resets the soft submit hint; the realtime event re-raises it
-          // a beat later only if the background delivery actually failed to confirm.
-          submitUnconfirmed: false,
-          startedAt: hasLiveSession
-            ? { attempt: nextAttempt, sessionName: response.session_name }
-            : null
-        };
-      });
+      setInternal((prev) => applySessionResponse(prev, response, fromProbe));
     },
     []
   );
@@ -144,7 +137,7 @@ export function useTerminalSession(
     (payload: { intent_id: string }) => {
       if (payload.intent_id !== intentId) return;
       setInternal((prev) =>
-        prev.state === "running" || prev.state === "spawning"
+        isLiveSessionState(prev.state)
           ? { ...prev, submitUnconfirmed: true }
           : prev
       );
@@ -152,6 +145,24 @@ export function useTerminalSession(
     [intentId]
   );
   useRealtimeEvent("terminal.prompt_submit_unconfirmed", onSubmitUnconfirmed);
+
+  const onLimitPaused = useCallback(
+    (payload: LimitPausedPayload) => {
+      if (payload.intent_id !== intentId) return;
+      setInternal((prev) => applyLimitPaused(prev, payload));
+    },
+    [intentId]
+  );
+  useRealtimeEvent("terminal.limit_paused", onLimitPaused);
+
+  const onLimitResumed = useCallback(
+    (payload: { intent_id: string }) => {
+      if (payload.intent_id !== intentId) return;
+      setInternal(applyLimitResumed);
+    },
+    [intentId]
+  );
+  useRealtimeEvent("terminal.limit_resumed", onLimitResumed);
 
   const runImpl = useCallback(
     async (payload: TerminalRunPayload) => {
@@ -255,6 +266,7 @@ export function useTerminalSession(
     probeSettled,
     error: internal.error,
     submitUnconfirmed: internal.submitUnconfirmed,
+    limitPause: internal.limitPause,
     startedAt: internal.startedAt,
     isStarting,
     isStopping,

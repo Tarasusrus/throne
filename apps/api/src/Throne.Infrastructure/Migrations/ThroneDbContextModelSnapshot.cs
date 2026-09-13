@@ -644,6 +644,10 @@ namespace Throne.Infrastructure.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("model");
 
+                    b.Property<string>("ReviewBindingId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("review_binding_id");
+
                     b.Property<string>("SelectedSkillIdsByMode")
                         .HasColumnType("TEXT")
                         .HasColumnName("selected_skill_ids_by_mode");

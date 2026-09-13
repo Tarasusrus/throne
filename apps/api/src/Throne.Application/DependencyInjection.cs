@@ -176,6 +176,15 @@ public static class DependencyInjection
         services.AddSingleton<IVendorModelCatalog, OpencodeLocalModelCatalog>();
         services.AddSingleton<TerminalSessionStatusService>();
         services.AddSingleton<TerminalSessionKillService>();
+        // Vendor usage limit as schedule, not stop (ADR-0055): hook subscriber records the pause,
+        // the sweep (hosted in Infrastructure) resumes past the reset, a fresh spawn drops the record.
+        services.AddSingleton(VendorLimitPolicyOptions.Default);
+        services.AddSingleton<IVendorLimitPauseStore, InMemoryVendorLimitPauseStore>();
+        services.AddSingleton<VendorLimitHookHandler>();
+        services.AddSingleton<ITerminalHookSubscriber>(sp => sp.GetRequiredService<VendorLimitHookHandler>());
+        services.AddSingleton<IVendorLimitSessionResumer, VendorLimitSessionResumer>();
+        services.AddSingleton<VendorLimitResumeSweep>();
+        services.AddSingleton<IDomainEventHandler, VendorLimitPauseOnSessionStartHandler>();
         return services;
     }
 

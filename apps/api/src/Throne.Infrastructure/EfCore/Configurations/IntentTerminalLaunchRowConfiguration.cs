@@ -21,6 +21,7 @@ internal sealed class IntentTerminalLaunchRowConfiguration : IEntityTypeConfigur
         // Effort is NULL for effortless vendors (opencode); a later switch to an effort
         // vendor never reads a stale value because the column drops to NULL on Unset.
         builder.Property(x => x.Effort).HasColumnName("effort");
+        builder.Property(x => x.ReviewBindingId).HasColumnName("review_binding_id");
 
         builder.Property(x => x.AttachedSkillIds)
             .HasColumnName("attached_skill_ids")

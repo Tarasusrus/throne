@@ -48,6 +48,46 @@ public class ClaudeSessionHookAdapterTests
         HookMatcher(document, "PostToolUse").Should().BeNull();
     }
 
+    [Fact(DisplayName = "Лимит вендора (ADR-0055): StopFailure с matcher rate_limit, вторая группа Notification на quota_auto_resume_*, autoContinueAtUsageLimit включён")]
+    public async Task Vendor_limit_bindings_and_auto_continue()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"throne-settings-{Guid.NewGuid():N}");
+        var sut = NewAdapter();
+
+        await sut.PrepareSpawnArgsAsync(
+            "intent-1", root, TerminalRunModes.Work, systemPrompt: null, skillPackages: [], CancellationToken.None);
+
+        using var document = JsonDocument.Parse(
+            await File.ReadAllTextAsync(Path.Combine(root, "throne-session.settings.json")));
+        document.RootElement.GetProperty("autoContinueAtUsageLimit").GetBoolean().Should().BeTrue();
+
+        HookMatcher(document, "StopFailure").Should().Be("rate_limit");
+        HookCommand(document, "StopFailure").Should().Be(
+            "curl -s -X POST 'http://localhost:5008/api/v1/intents/intent-1/terminal/hooks/StopFailure?mode=work' " +
+            "-H 'Content-Type: application/json' -d @-");
+
+        var notification = document.RootElement.GetProperty("hooks").GetProperty("Notification");
+        notification.GetArrayLength().Should().Be(2, "permission_prompt и quota_auto_resume_* — две группы одного события");
+        notification[1].GetProperty("matcher").GetString()
+            .Should().Be("quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled");
+        notification[1].GetProperty("hooks")[0].GetProperty("command").GetString()
+            .Should().Contain("/terminal/hooks/Notification?mode=work");
+    }
+
+    [Fact(DisplayName = "Relaunch после лимита: ResumeArgs = --continue, сохранённые правила читаются из workspace, без файла — null")]
+    public async Task Resume_args_and_persisted_rules()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"throne-settings-{Guid.NewGuid():N}");
+        var sut = NewAdapter();
+        sut.ResumeArgs.Should().Equal("--continue");
+
+        (await sut.ReadPersistedSystemPromptAsync(root, CancellationToken.None)).Should().BeNull();
+        await sut.PrepareSpawnArgsAsync(
+            "intent-1", root, TerminalRunModes.Work, systemPrompt: "RULES\nblock", skillPackages: [], CancellationToken.None);
+
+        (await sut.ReadPersistedSystemPromptAsync(root, CancellationToken.None)).Should().Be("RULES\nblock");
+    }
+
     [Fact(DisplayName = "Непустой systemPrompt пишется в файл дословно и подаётся через --append-system-prompt-file")]
     public async Task Writes_system_prompt_file_and_references_it()
     {

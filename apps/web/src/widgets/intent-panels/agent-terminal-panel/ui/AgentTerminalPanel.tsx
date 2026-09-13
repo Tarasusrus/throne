@@ -13,7 +13,10 @@ import { SessionLiveBadge } from "@/shared/ui";
 import { useAttachableSkills } from "../model/use-attachable-skills";
 import { useLaunchAxis } from "../model/use-launch-axis";
 import { useReviewTargetSelection } from "../model/use-review-target-selection";
-import { useTerminalSession } from "../model/use-terminal-session";
+import {
+  isLiveSessionState,
+  useTerminalSession
+} from "../model/use-terminal-session";
 import { TERMINAL_RUN_MODES, defaultRunModeForStatus } from "../model/types";
 import type { TerminalRunPayload } from "../model/types";
 
@@ -39,8 +42,7 @@ export function AgentTerminalPanel({
   const { bindings } = useIntentRepositories(intentId);
 
   const session = useTerminalSession(intentId, true);
-  const sessionLive =
-    session.state === "running" || session.state === "spawning";
+  const sessionLive = isLiveSessionState(session.state);
   const sessionLaunch = session.lastResponse?.launch ?? null;
   const liveLaunch = sessionLive ? sessionLaunch : null;
 
@@ -201,6 +203,7 @@ export function AgentTerminalPanel({
         notReadyBindings={notReady}
         sessionError={session.error}
         submitUnconfirmed={sessionLive && session.submitUnconfirmed}
+        limitPause={sessionLive ? session.limitPause : null}
       />
 
       <TerminalLiveViewers

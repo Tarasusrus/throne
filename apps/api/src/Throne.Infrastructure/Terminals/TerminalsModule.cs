@@ -62,6 +62,8 @@ public static class TerminalsModule
                 sp.GetRequiredService<ISessionSkillMaterializer>(),
                 CodexSessionProfile.ResolveHome()));
         services.AddSingleton<ISessionHookAdapter, OpencodeSessionHookAdapter>();
+        // Vendor-limit sweep host (ADR-0055); the per-tick decisions live in Application.
+        services.AddHostedService<VendorLimitResumeService>();
         // Application orchestrators consume the bare options instance (see
         // PullRequestSyncBackoff for the same pattern) so Throne.Application
         // does not need a reference to Microsoft.Extensions.Options.

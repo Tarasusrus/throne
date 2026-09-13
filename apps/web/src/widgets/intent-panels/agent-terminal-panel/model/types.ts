@@ -25,6 +25,10 @@ export type TerminalSessionState =
 export type RunIntentTerminalResponse =
   TerminalComponents["schemas"]["RunIntentTerminalResponse"];
 
+/** Пауза по лимиту вендора: до когда сессия ждёт сброс (ADR-0055). */
+export type TerminalLimitPause =
+  TerminalComponents["schemas"]["TerminalLimitPauseDto"];
+
 /**
  * Persisted launch axis of an intent returned by the run response and the status probe
  * (ADR-0041). With a live session these are the running session's real parameters; otherwise the

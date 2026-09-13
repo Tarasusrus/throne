@@ -14,6 +14,9 @@ internal sealed class IntentTerminalLaunchRow
     public string Model { get; set; } = string.Empty;
     public string? Effort { get; set; }
 
+    /// <summary>Binding the last spawn's review artifact targeted; NULL without a review skill.</summary>
+    public string? ReviewBindingId { get; set; }
+
     /// <summary>
     /// Orphaned legacy column: «what is loaded» now collapses into
     /// <see cref="SelectedSkillIdsByMode"/>. Kept mapped so no schema migration is needed —

@@ -128,16 +128,24 @@ function vendorCatalog() {
 
 function sessionResponse(
   state: RunIntentTerminalResponse["session_state"],
-  launch?: RunIntentTerminalResponse["launch"]
+  launch?: RunIntentTerminalResponse["launch"],
+  limitPause?: RunIntentTerminalResponse["limit_pause"]
 ): RunIntentTerminalResponse {
   return {
     intent_id: "intent-1",
     session_name: "throne-intent-1",
     session_state: state,
     bindings: [],
-    ...(launch ? { launch } : {})
+    ...(launch ? { launch } : {}),
+    ...(limitPause ? { limit_pause: limitPause } : {})
   };
 }
+
+const LIMIT_PAUSE = {
+  resume_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  attempts: 2,
+  message: "You've hit your monthly spend limit"
+};
 
 function render() {
   return renderWithQuery(
@@ -210,6 +218,63 @@ describe("AgentTerminalPanel live viewers", () => {
     expect(
       await screen.findByText(/стартовый промпт не отправился/i)
     ).toBeTruthy();
+  });
+
+  it("paused_by_limit — живая сессия: бейдж, kill, встроенный терминал и плашка паузы с попыткой", async () => {
+    getIntentTerminalSession.mockResolvedValue(
+      sessionResponse("paused_by_limit", undefined, LIMIT_PAUSE)
+    );
+    render();
+
+    expect(await screen.findByTestId("terminal-view")).toBeTruthy();
+    expect(screen.getByTestId("agent-terminal-live-badge")).toBeTruthy();
+    expect(screen.getByTestId("agent-terminal-kill")).toBeTruthy();
+    const banner = screen.getByTestId("agent-terminal-limit-pause");
+    expect(banner.textContent).toMatch(/лимит вендора/i);
+    expect(banner.textContent).toMatch(/попытка 2/);
+    expect(runIntentTerminal).not.toHaveBeenCalled();
+  });
+
+  it("realtime: limit_paused показывает плашку на running-сессии, limit_resumed убирает", async () => {
+    getIntentTerminalSession.mockResolvedValue(sessionResponse("running"));
+    render();
+    await screen.findByTestId("agent-terminal-live-badge");
+    expect(screen.queryByTestId("agent-terminal-limit-pause")).toBeNull();
+
+    realtimeHandlers["terminal.limit_paused"].forEach((fn) => {
+      fn({
+        intent_id: "intent-1",
+        resume_at: LIMIT_PAUSE.resume_at,
+        attempts: 1
+      });
+    });
+    expect(
+      await screen.findByTestId("agent-terminal-limit-pause")
+    ).toBeTruthy();
+    expect(screen.getByTestId("agent-terminal-live-badge")).toBeTruthy();
+
+    realtimeHandlers["terminal.limit_resumed"].forEach((fn) => {
+      fn({ intent_id: "intent-1" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("agent-terminal-limit-pause")).toBeNull();
+    });
+  });
+
+  it("realtime: limit_paused чужого интента плашку не показывает", async () => {
+    getIntentTerminalSession.mockResolvedValue(sessionResponse("running"));
+    render();
+    await screen.findByTestId("agent-terminal-live-badge");
+
+    realtimeHandlers["terminal.limit_paused"].forEach((fn) => {
+      fn({
+        intent_id: "intent-other",
+        resume_at: LIMIT_PAUSE.resume_at,
+        attempts: 1
+      });
+    });
+
+    expect(screen.queryByTestId("agent-terminal-limit-pause")).toBeNull();
   });
 
   it("показывает фактическую ось live-сессии read-only бейджами, без селекторов", async () => {

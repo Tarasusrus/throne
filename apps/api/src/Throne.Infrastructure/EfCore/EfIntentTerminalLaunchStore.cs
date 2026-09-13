@@ -46,6 +46,9 @@ internal sealed class EfIntentTerminalLaunchStore(
             // Effort-less vendors (opencode) carry no effort: drop the field so a later
             // switch to an effort vendor never reads a stale value.
             row.Effort = record.Effort;
+            // Review-less spawns drop the binding so a later review relaunch never aims at a
+            // target chosen for an older session.
+            row.ReviewBindingId = record.ReviewBindingId;
             // selected_skill_ids_by_mode is intentionally NOT touched: the per-mode selection
             // survives a respawn until explicitly updated via SaveSelectedSkillIdsAsync.
             await ctx.SaveChangesAsync(c);
@@ -107,6 +110,7 @@ internal sealed class EfIntentTerminalLaunchStore(
                 kv => (IReadOnlyList<string>)kv.Value.ToArray(),
                 StringComparer.Ordinal)
             : EmptySelections;
-        return new TerminalLaunchRecord(row.Mode, row.Vendor, row.Model, row.Effort, selections);
+        return new TerminalLaunchRecord(
+            row.Mode, row.Vendor, row.Model, row.Effort, selections, row.ReviewBindingId);
     }
 }

@@ -125,3 +125,13 @@ public sealed record TerminalSessionStopped(string IntentId) : IDomainEvent;
 /// resend, NOT a spawn failure. A lost event is harmless — the live pane shows the real state.
 /// </summary>
 public sealed record TerminalPromptSubmitUnconfirmed(string IntentId) : IDomainEvent;
+
+/// <summary>
+/// The session hit the vendor's usage limit and waits for the reset (ADR-0055). Like the other
+/// terminal hints it is dispatched directly, not carried by a persistence outcome; the status
+/// probe is the source of truth and re-derives the pause on the next read.
+/// </summary>
+public sealed record TerminalLimitPaused(string IntentId, DateTimeOffset ResumeAt, int Attempts) : IDomainEvent;
+
+/// <summary>The paused session is working again — vendor auto-continue, a tool call, or Throne's own push.</summary>
+public sealed record TerminalLimitResumed(string IntentId) : IDomainEvent;

@@ -21,7 +21,7 @@ public sealed class RunPreflightSkillPlanner(
             vendor,
             selected.SelectedSkillIds,
             selected.ReviewArtifact));
-        return new RunPreflightSkillPlan(selected.SelectedSkillIds, packages);
+        return new RunPreflightSkillPlan(selected.SelectedSkillIds, packages, selected.ReviewArtifact?.BindingId);
     }
 
     public Task SaveAsync(string intentId, string mode, RunPreflightSkillPlan plan, CancellationToken ct) =>
@@ -30,4 +30,5 @@ public sealed class RunPreflightSkillPlanner(
 
 public sealed record RunPreflightSkillPlan(
     IReadOnlyList<string> SelectedSkillIds,
-    IReadOnlyList<SessionSkillPackage> Packages);
+    IReadOnlyList<SessionSkillPackage> Packages,
+    string? ReviewBindingId = null);

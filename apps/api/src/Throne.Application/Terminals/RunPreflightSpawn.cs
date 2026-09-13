@@ -56,6 +56,10 @@ public sealed class RunPreflightSpawn(
             ? await adapter.PrepareSpawnArgsAsync(
                 intentId.Value, workspacePath, mode, prompt.SystemPrompt, skillPackages, ct)
             : [];
+        if (launch.ResumeConversation && adapter is not null)
+        {
+            preparedArgs = [.. preparedArgs, .. adapter.ResumeArgs];
+        }
 
         // Native-session vendors (OpenCode) own their prompt delivery *before* the visible pane
         // spawns: the loop runs in a shared `opencode serve`, the pane only attaches. Create the

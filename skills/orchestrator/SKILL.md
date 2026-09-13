@@ -1,6 +1,6 @@
 ---
 name: orchestrator
-description: Available for driving a whole tag from the orchestrator intent — listing the intents of your own tag, launching, watching and accepting executors (merge into the main branch) through skills/orchestrator/bin/throne-orchestrator. Routine operation in the orchestrator run mode (ADR-0054).
+description: Available for driving a whole tag from the orchestrator intent — listing the intents of your own tag, launching, watching, independently reviewing and accepting executors (merge into the main branch) through skills/orchestrator/bin/throne-orchestrator. Routine operation in the orchestrator run mode (ADR-0054).
 ---
 
 # Throne Orchestrator Operations
@@ -114,6 +114,12 @@ you is the vendor's own background monitor: every line the monitored command pri
 session as a notification, a notification re-invokes you, and your first tool call trips the status
 hook that moves you from `awaiting_operator` back to `work`.
 
+A review intent (`[REVIEW] …`) that has parked in `awaiting_operator` with a `## Вердикт` already
+written is not listed: its work is done, and without that rule every review round would leave one
+more dead row per task. A parked review intent *without* a verdict stays in the picture — the
+reviewer stopped before finishing, treat it like any executor that came back early. `--wait` still
+reports the move to `awaiting_operator` for both, so the verdict never arrives unnoticed.
+
 `watch` only reads. It never changes a status or touches a session.
 
 ### Standing watch in the background
@@ -149,16 +155,52 @@ What the first live run (2026-09-02) actually showed:
 So you may promise the operator that you will keep an eye on the executors — and then verify with
 your own `watch` before you act on what the monitor told you.
 
+## Independent review
+
+```bash
+skills/orchestrator/bin/throne-orchestrator review --intent <child>
+skills/orchestrator/bin/throne-orchestrator review --intent <child> --vendor claude --model opus --effort high
+```
+
+The executor must not review its own branch, and neither do you — its report tells you what it
+*thinks* it did. `review` starts a second agent that knows only the statement of work
+(ADR-0054 §8): it cuts exactly three sections out of the child body — `## Ветка`,
+`## Definition of Done`, `## Для человека` — creates a new review intent of your tag from them,
+links it to the child («ревью вытекает из задачи»), and launches a `verify` session on it. Nothing
+else crosses over: not `## Для агента`, not `## Отчёт`, not the executor's chat, not your journal.
+The command prints the review intent id as soon as the intent exists — before the link and the
+session start — so if either fails, the id is on your screen. Do not run `review` again on reflex:
+that creates a second review intent for the same branch. Note the id in the journal, find out why
+the link or the launch failed, and only then decide whether a fresh `review` is warranted. A body
+without `## Ветка` or without a non-empty DoD is refused before anything is created; so is a body
+with an unclosed code fence, which would hide those sections — the error names the fence line.
+
+`--vendor`/`--model`/`--effort` work exactly as for `run`. One reviewer at a time, for the same
+reasons as one executor: the spawn is synchronous and the vendor trust file is shared.
+
+The reviewer fetches the branch, reads the diff against the main branch, runs the project's tests
+and gates, checks every DoD line against a fact, breaks at least one proof-test by mutation to see
+it go red, and writes its verdict into its own body as `## Вердикт`: `принято` / `не принято` on
+the first line, then each DoD line with the evidence, then defects with file and line. It does not
+change code and does not push. Wait for it with `watch` like for any executor, then read the
+verdict: `THRONE_INTENT_ID=<review id> skills/intent/bin/throne-intent get`.
+
+Each `review` call creates a fresh review intent — a verdict belongs to one state of the branch, and
+a re-run after rework gets its own. After you have read the verdict, leave the review intent where it
+is: it stays in `awaiting_operator` as the record of that round, `watch` no longer lists it, and its
+id goes into your journal next to the decision. You do not change its status — statuses are the
+operator's, who closes review intents when tidying the tag.
+
 ## Accepting their work
 
 An executor that came back (`awaiting_operator`, or a session that vanished) has handed you a
-branch. Accepting it is your job — the operator is not a reviewer on call. The sequence:
+branch. Accepting it is your job — the operator is not a reviewer on call — and it rests on the
+reviewer's verdict, not on the executor's report. The sequence:
 
-1. Read the report: `THRONE_INTENT_ID=<child> skills/intent/bin/throne-intent get` — the
-   `## Отчёт` section says what was done and what was checked.
-2. Review the branch against the DoD in your own clone of the tag's repository (`git fetch origin
-   && git diff origin/<main>...origin/<branch>`); run `/code-review` on it if the vendor offers one.
-   You judge scope, tests, and whether every DoD line is closed.
+1. `review --intent <child>`, wait for the reviewer, read `## Вердикт` from the review intent.
+2. `не принято` → go to step 4. `принято` → you may still glance at `## Отчёт` of the child for what
+   was left out, but do not re-read the diff as a substitute for the review: the verdict is the
+   judgment, yours is to act on it.
 3. Let the CLI do the deterministic part:
 
 ```bash
@@ -177,11 +219,12 @@ conflict (unrelated histories, a hook) exits 1 with git's own output — a rebas
 read it. Re-running on an already merged branch is a no-op that prints «уже влито». The executor's
 branch is never touched.
 
-4. Accepted: journal it (`YYYY-MM-DD — принято <branch>. Интенты: <child>`), move the child out of
-   `## В работе`, take the next statement of work.
-   Not accepted (a DoD line open, review red, `accept` returned 66–68): append what is missing to
-   the child intent and `run` it again. Do not finish the work yourself, and do not carry it to the
-   operator — a returned task is the ordinary loop, not an escalation.
+4. Accepted: journal it (`YYYY-MM-DD — принято <branch>. Ревью: <review id>. Интенты: <child>`),
+   move the child out of `## В работе`, take the next statement of work.
+   Not accepted (verdict `не принято`, or `accept` returned 66–68): append the reviewer's findings
+   — DoD lines without evidence, defects with file and line — to the child intent and `run` it
+   again; after it comes back, `review` again. Do not finish the work yourself, and do not carry it
+   to the operator — a returned task is the ordinary loop, not an escalation.
 
 Pushing and merging into the tag's own repositories is what this mode is for. The general
 «ask before push» rule from the shared prompt parts does not apply here; the operator is not asked.
@@ -213,7 +256,8 @@ so recent entries stay verbatim and older ones get folded into a summary line.
 ## Tests
 
 `skills/orchestrator/tests/test_run_effort.py` property-tests how `run` assembles the launch
-payload and validates `--effort` (needs `pytest` + `hypothesis`):
+payload and validates `--effort`; `test_review_body.py` — how `review` cuts the review intent body
+out of the child and that its payload runs `verify` (both need `pytest` + `hypothesis`):
 
 ```bash
 python3 -m pytest skills/orchestrator/tests -q
@@ -239,3 +283,6 @@ The script reads two variables from the environment. A Throne-spawned session ha
   executor, an accepted and merged branch, a decision recorded in your body.
 - Acceptance is yours, not the operator's. The operator sees merged results and architectural forks
   — never a «shall I check / merge / continue?».
+- Review is neither yours nor the executor's: a separate `verify` session that knows only the DoD,
+  the problem and the branch. You accept on its verdict, not on the executor's report or your own
+  reading of the diff.

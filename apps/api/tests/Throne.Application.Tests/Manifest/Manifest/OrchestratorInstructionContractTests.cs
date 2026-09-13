@@ -51,11 +51,12 @@ public class OrchestratorInstructionContractTests
         stopRule.Should().ContainEquivalentOf("чужую активную работу");
     }
 
-    [Theory(DisplayName = "Перечень операций называет все четыре команды скилла")]
+    [Theory(DisplayName = "Перечень операций называет все команды скилла")]
     [InlineData("обзор")]
     [InlineData("запуск")]
     [InlineData("остановк")]
     [InlineData("watch")]
+    [InlineData("review")]
     [InlineData("приёмк")]
     public void Lists_every_skill_command(string command)
     {

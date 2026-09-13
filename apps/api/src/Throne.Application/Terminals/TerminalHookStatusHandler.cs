@@ -75,6 +75,7 @@ public sealed class TerminalHookStatusHandler(IIntentRepository repository, SetI
         TerminalRunModes.Work => IntentStatusNames.Work,
         TerminalRunModes.Free => IntentStatusNames.Work,
         TerminalRunModes.Orchestrator => IntentStatusNames.Work,
+        TerminalRunModes.Verify => IntentStatusNames.Work,
         TerminalRunModes.Review => IntentStatusNames.Work,
         TerminalRunModes.Interview => IntentStatusNames.Interview,
         _ => null,
@@ -85,5 +86,6 @@ public sealed class TerminalHookStatusHandler(IIntentRepository repository, SetI
             or TerminalRunModes.Interview
             or TerminalRunModes.Review
             or TerminalRunModes.Free
-            or TerminalRunModes.Orchestrator;
+            or TerminalRunModes.Orchestrator
+            or TerminalRunModes.Verify;
 }

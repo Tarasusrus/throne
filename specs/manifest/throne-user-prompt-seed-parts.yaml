@@ -27,6 +27,7 @@ seed_parts:
       - { mode: dream,     role: mandatory, order: 1 }
       - { mode: free,      role: mandatory, order: 1 }
       - { mode: orchestrator, role: mandatory, order: 1 }
+      - { mode: verify,       role: mandatory, order: 1 }
     text: |
       Веди диалог на языке оператора
 
@@ -43,6 +44,7 @@ seed_parts:
       - { mode: work, role: mandatory, order: 2 }
     text: |
       - Не плоди новые сущности, слои и workflow без явной необходимости.
+      - `/code-review` на свою ветку не запускай: ревью делает отдельная сессия, которая знает только постановку и ветку. Фоновые агенты с парковкой в ожидании — запрещены.
 
   - key: review
     description: Основа режима "ревью".

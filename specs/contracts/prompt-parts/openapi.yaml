@@ -257,7 +257,7 @@ components:
       properties:
         mode:
           type: string
-          description: Embedded run mode (work | interview | review | free | orchestrator).
+          description: Embedded run mode (work | interview | review | free | orchestrator | verify).
         role:
           type: string
           description: Role in the mode (mandatory | default_on | default_off).

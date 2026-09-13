@@ -15,5 +15,6 @@ export const SKILL_MODE_LABELS: Record<string, string> = {
   work: "Work",
   free: "Free",
   dream: "Dream",
-  orchestrator: "Orchestrator"
+  orchestrator: "Orchestrator",
+  verify: "Verify"
 };

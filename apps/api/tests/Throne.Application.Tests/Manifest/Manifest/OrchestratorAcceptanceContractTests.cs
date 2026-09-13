@@ -89,7 +89,7 @@ public class OrchestratorAcceptanceContractTests
         branchRule.Should().ContainEquivalentOf("запушь");
         StopDirective.IsMatch(branchRule).Should().BeFalse();
 
-        var reportRule = RuleLineWithMarker(work, "## Отчёт");
+        var reportRule = RuleLineWithMarker(work, "`## Отчёт`");
         reportRule.Should().Contain("replace-text", "отчёт пишется через skill intent, а не в чат");
     }
 }

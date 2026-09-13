@@ -1,3 +1,4 @@
+using System.Reflection;
 using FluentAssertions;
 using Throne.Api.Cli;
 
@@ -59,17 +60,19 @@ public class ThroneVersionTests
         }
     }
 
-    [Fact(DisplayName = "Контракт DoD: informational '1.2.3+abc' — Current несёт '+abc', сравнение с релизом видит '1.2.3'")]
-    public void Dod_contract_example()
+    [Fact(DisplayName = "Контракт DoD: Current несёт информационную версию сборки байт в байт, включая суффикс сборки")]
+    public void Current_matches_assembly_informational_version_byte_for_byte()
     {
-        const string informational = "1.2.3+abc";
+        // Reads the real attribute off the running assembly instead of a literal —
+        // a Resolve() that strips "+<sha>" at the source (the bug this DoD forbids)
+        // makes Current diverge from this and the test goes red. Verified against a
+        // build stamped the way install-local.sh does it: `dotnet build
+        // apps/api/src/Throne.Api -p:Version=0.0.0-test+abc`.
+        var informational = typeof(ThroneVersion).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
-        // Current is resolved once from the test assembly's own attribute at process
-        // start, so it cannot be pointed at an arbitrary informational string here —
-        // this asserts the same transformation Current is defined never to apply,
-        // plus the one UpdateCommand.Normalize does apply, against the DoD's own example.
-        informational.Should().Contain("+abc");
-        ThroneVersion.WithoutBuildMetadata(informational).Should().Be("1.2.3");
+        informational.Should().NotBeNullOrWhiteSpace();
+        ThroneVersion.Current.Should().Be(informational);
     }
 
     private static string RandomSemVerCore(Random rng) =>

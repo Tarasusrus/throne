@@ -112,6 +112,30 @@ public class DeployManifestHashTests
         }
     }
 
+    [Fact(DisplayName = "Свойство: файлы внутри __pycache__/.pytest_cache под skills/ не влияют на хэш")]
+    public void Files_inside_pycache_or_pytest_cache_do_not_affect_the_hash()
+    {
+        for (var seed = 0; seed < Cases; seed++)
+        {
+            var rng = new Random(seed);
+            using var bundle = Bundle.Generate(rng);
+
+            var before = DeployManifestHash.Compute(bundle.Root);
+
+            var pycacheDir = Path.Combine(bundle.Root, "skills", $"orchestrator-{seed}", "bin", "__pycache__");
+            Directory.CreateDirectory(pycacheDir);
+            File.WriteAllText(Path.Combine(pycacheDir, "_orchestrator.cpython-312.pyc"), $"{rng.Next()}");
+
+            var pytestCacheDir = Path.Combine(bundle.Root, "skills", $"orchestrator-{seed}", "tests", ".pytest_cache");
+            Directory.CreateDirectory(pytestCacheDir);
+            File.WriteAllText(Path.Combine(pytestCacheDir, "CACHEDIR.TAG"), "irrelevant");
+
+            var after = DeployManifestHash.Compute(bundle.Root);
+
+            after.Should().Be(before, Counterexample(seed, bundle));
+        }
+    }
+
     private static string Counterexample(int seed, Bundle bundle) =>
         $"seed={seed}, root={bundle.Root}";
 

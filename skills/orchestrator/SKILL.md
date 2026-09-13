@@ -45,6 +45,7 @@ you need its full text.
 ```bash
 skills/orchestrator/bin/throne-orchestrator run --intent <id>
 skills/orchestrator/bin/throne-orchestrator run --intent <id> --vendor claude --model opus
+skills/orchestrator/bin/throne-orchestrator run --intent <id> --vendor claude --model opus --effort high
 skills/orchestrator/bin/throne-orchestrator stop --intent <id>
 ```
 
@@ -52,6 +53,21 @@ skills/orchestrator/bin/throne-orchestrator stop --intent <id>
 first and passes the assembled `system_prompt`/`user_prompt` into the spawn — the server does not
 assemble them on `run`, so skipping the preview would boot an executor with no rules and no task
 while still looking like success.
+
+`--effort` (`low`/`medium`/`high`/`xhigh`) is a launch axis alongside `--model`, not a separate step.
+Omit it and the run payload is untouched — the server picks the vendor's own default. Pass a value
+outside the four tiers and the command refuses before making any HTTP call at all, so a typo never
+burns a preview round-trip. For a vendor whose catalog carries no effort axis (`opencode` today,
+`supports_effort=false`) the server itself drops whatever effort you pass — it never reaches the
+executor's argv — so passing `--effort` there is harmless but has no effect; the command does not
+special-case it.
+
+Pick the pair by how much the task can go wrong, not by habit: a mechanical edit (rename, config
+bump, a fix with an obvious one-line cause) is cheapest at a lower model/effort; anything that
+requires judgment under ambiguity — conflict resolution, an architectural fork, a statement of work
+with contradictory acceptance criteria — earns the higher tier. Paying `xhigh` for routine work wastes
+budget for no better outcome; paying `low` for a conflict risks a wrong merge that costs more to undo
+than the tier would have cost to run.
 
 A child intent is worth launching only if it is a statement of work. Two sections are mandatory:
 `## Ветка` — the branch the executor works in and pushes when done — and `## Definition of Done` —
@@ -193,6 +209,15 @@ conflict.
 
 Keep the journal bounded. The body is injected as the task zone of every next orchestrator session,
 so recent entries stay verbatim and older ones get folded into a summary line.
+
+## Tests
+
+`skills/orchestrator/tests/test_run_effort.py` property-tests how `run` assembles the launch
+payload and validates `--effort` (needs `pytest` + `hypothesis`):
+
+```bash
+python3 -m pytest skills/orchestrator/tests -q
+```
 
 ## Environment
 

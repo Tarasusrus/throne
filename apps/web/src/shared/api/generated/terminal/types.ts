@@ -155,6 +155,7 @@ export interface paths {
         /**
          * Receive a local agent hook callback.
          * @description Agent-only local runtime callback injected into the per-session agent config (Claude `--settings` file, Codex inline `-c hooks.*` override, OpenCode project plugin). Drives deterministic intent-status derivation in the embedded contour (ADR-0034 §4). `SessionReady` is a provider-neutral readiness signal for the initial prompt paste and is intentionally ignored by status derivation. Two Throne events park the intent in `awaiting_operator` — `Stop` (turn yielded) and `Notification` (a permission prompt blocks the agent without ending the turn, so no `Stop` fires; Claude scopes it to `permission_prompt` via matcher, OpenCode maps `permission.asked`) — and two return it to the spawn phase (`work`/`review`/`free`/`orchestrator`/`verify` → `work`, `interview` → `interview`): `UserPromptSubmit` (operator answered) and `PostToolUse` (agent resumed after an approval, which is not a `UserPromptSubmit`). OpenCode maps `session.idle`, `tui.prompt.append`, `permission.replied`, and `tool.execute.after` onto those Throne events. The `mode` query carries that spawn phase so the return is stateless — the hook knows its own session mode. Bundle-less `dream` passes through without a status change. Codex still injects only the turn-boundary pair.
+         *     Vendor limit (ADR-0055): Claude fires `StopFailure` instead of `Stop` when an API error ended the turn; Throne binds it with matcher `rate_limit` and reads the body (`error`, `last_assistant_message` with the reset time) to put the session into a limit pause — the intent status is not touched. Claude's own auto-continue outcome arrives as `Notification` with `notification_type` `quota_auto_resume_fired|stale|disabled`; those never park the intent (`fired` ends the pause). The body is the vendor hook's stdin JSON forwarded verbatim and is deliberately not modelled as a request body: it is read tolerantly (any shape, empty, or absent — OpenCode sends none) and only the top-level string fields `error`, `last_assistant_message`, `notification_type`, `message` are used.
          */
         post: operations["receiveIntentTerminalHook"];
         delete?: never;
@@ -250,10 +251,24 @@ export interface components {
         TerminalRunMode: "work" | "interview" | "review" | "dream" | "free" | "orchestrator" | "verify";
         /**
          * @description Lifecycle of the per-intent tmux session, derived from `tmux has-session` at observation time.
-         *     `spawning` — pre-flight finished, `tmux new -ADs` not yet observed alive. `running` — session is alive. `blocked` — at least one binding is `failed` / `broken`; spawn was skipped. `exited` — session was alive previously but has since been torn down.
+         *     `spawning` — pre-flight finished, `tmux new -ADs` not yet observed alive. `running` — session is alive. `paused_by_limit` — session is alive but waits for the vendor's usage limit to reset (ADR-0055); `limit_pause` says until when. Attachable like `running`. `blocked` — at least one binding is `failed` / `broken`; spawn was skipped. `exited` — session was alive previously but has since been torn down.
          * @enum {string}
          */
-        TerminalSessionState: "spawning" | "running" | "blocked" | "exited";
+        TerminalSessionState: "spawning" | "running" | "paused_by_limit" | "blocked" | "exited";
+        TerminalLimitPauseDto: {
+            /**
+             * Format: date-time
+             * @description When the vendor said the limit resets (or detection + default retry).
+             */
+            resume_at: string;
+            /**
+             * Format: int32
+             * @description Consecutive limit hits in the repeat window; the ceiling escalates to `awaiting_operator`.
+             */
+            attempts: number;
+            /** @description The vendor line as received, verbatim. */
+            message: string;
+        };
         /** @description Stable terminal vendor key. The value set is intentionally open and delivered by `GET /api/v1/terminal/vendors`; unknown values are rejected by server-side catalog validation. Provider-neutral axis: the spawn command is built per vendor (`claude --model … --effort …` vs `codex -m … -c model_reasoning_effort=…` vs `opencode --model throne-local/…`, no effort axis). Omitted on the request → the server falls back to `default_terminal_vendor` from settings. */
         TerminalAgentVendor: string;
         /**
@@ -312,6 +327,8 @@ export interface components {
             bindings: components["schemas"]["RunIntentBindingStatusDto"][];
             /** @description IDs of bindings whose `clone_status` is `failed` or `broken`. Present when `session_state=blocked`; the UI uses them to render an actionable error per row. */
             blocking_bindings?: string[];
+            /** @description Present while `session_state=paused_by_limit` (and, with `resume_at` in the past, until the session provably resumes): until when the vendor limit holds the session (ADR-0055). */
+            limit_pause?: components["schemas"]["TerminalLimitPauseDto"] | null;
             /** @description Resolved launch axis (mode/vendor/model/effort) of this intent. On `run` it echoes the axis the spawn actually used (defaults applied). On the status probe it is the persisted last-used axis: with a live session those are the running session's real parameters; otherwise the choice the controls pre-fill from. Null only when the intent was never launched (no persisted record). */
             launch?: components["schemas"]["TerminalLaunchArgs"] | null;
         };
@@ -676,7 +693,7 @@ export interface operations {
             header?: never;
             path: {
                 intent_id: string;
-                event: "Stop" | "UserPromptSubmit" | "SessionReady" | "Notification" | "PostToolUse";
+                event: "Stop" | "UserPromptSubmit" | "SessionReady" | "Notification" | "PostToolUse" | "StopFailure";
             };
             cookie?: never;
         };

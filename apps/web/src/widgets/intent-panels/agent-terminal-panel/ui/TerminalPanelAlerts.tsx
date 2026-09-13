@@ -1,7 +1,9 @@
-import { AlertCircle, AlertTriangle } from "lucide-react";
+import { AlertCircle, AlertTriangle, PauseCircle } from "lucide-react";
 
 import type { RepositoryBinding } from "@/entities/repository-binding";
 
+import { formatLimitResumeAt } from "../model/format-limit-resume-at";
+import type { TerminalLimitPause } from "../model/types";
 import { PreflightProgress } from "./PreflightProgress";
 
 interface TerminalPanelAlertsProps {
@@ -9,16 +11,42 @@ interface TerminalPanelAlertsProps {
   notReadyBindings: readonly RepositoryBinding[];
   sessionError: string | null;
   submitUnconfirmed: boolean;
+  /** Пауза по лимиту вендора для живой сессии (ADR-0055); null — сессия работает. */
+  limitPause?: TerminalLimitPause | null;
 }
 
 export function TerminalPanelAlerts({
   metadataError,
   notReadyBindings,
   sessionError,
-  submitUnconfirmed
+  submitUnconfirmed,
+  limitPause = null
 }: TerminalPanelAlertsProps) {
   return (
     <>
+      {limitPause ? (
+        <p
+          role="status"
+          data-testid="agent-terminal-limit-pause"
+          className="m-0 flex items-start gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-info"
+        >
+          <PauseCircle
+            aria-hidden
+            size={14}
+            strokeWidth={2}
+            className="mt-0.5"
+          />
+          <span>
+            Пауза: лимит вендора. Возобновление{" "}
+            {formatLimitResumeAt(limitPause.resume_at)}
+            {limitPause.attempts > 1
+              ? ` · попытка ${String(limitPause.attempts)}`
+              : ""}
+            . Сессия жива и продолжит сама; статус интента не меняется.
+          </span>
+        </p>
+      ) : null}
+
       {metadataError ? (
         <p
           role="alert"

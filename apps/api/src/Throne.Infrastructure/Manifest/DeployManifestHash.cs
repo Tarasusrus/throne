@@ -5,11 +5,11 @@ namespace Throne.Infrastructure.Manifest;
 
 /// <summary>
 /// Fingerprints the prompt/skill surface a running instance actually serves:
-/// <c>specs/manifest/*.yaml</c> and <c>skills/*/SKILL.md</c>, the same files
-/// install-local.sh copies from the repo into the deployed bundle. Exposed on
-/// <c>/version</c> and <c>throne status</c> so a stale instance — old commit but
-/// unnoticed because it still starts and answers health checks — is visible
-/// without diffing directory trees by hand.
+/// <c>specs/manifest/*.yaml</c> and everything under <c>skills/</c> (SKILL.md,
+/// scripts, <c>bin/*</c> — anything install-local.sh copies from the repo into
+/// the deployed bundle). Exposed on <c>/version</c> and <c>throne status</c> so
+/// a stale instance — old commit but unnoticed because it still starts and
+/// answers health checks — is visible without diffing directory trees by hand.
 /// </summary>
 public static class DeployManifestHash
 {
@@ -47,13 +47,10 @@ public static class DeployManifestHash
         var skillsDir = Path.Combine(root, "skills");
         if (Directory.Exists(skillsDir))
         {
-            foreach (var skillDir in Directory.EnumerateDirectories(skillsDir))
+            foreach (var file in Directory.EnumerateFiles(skillsDir, "*", SearchOption.AllDirectories))
             {
-                var skillMd = Path.Combine(skillDir, "SKILL.md");
-                if (File.Exists(skillMd))
-                {
-                    yield return ($"skills/{Path.GetFileName(skillDir)}/SKILL.md", skillMd);
-                }
+                var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
+                yield return (relative, file);
             }
         }
     }

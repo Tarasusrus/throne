@@ -52,7 +52,7 @@ public class DeployManifestHashTests
         }
     }
 
-    [Fact(DisplayName = "Свойство: добавление или удаление покрытого файла меняет хэш")]
+    [Fact(DisplayName = "Свойство: добавление или удаление покрытого файла (SKILL.md) меняет хэш")]
     public void Adding_or_removing_a_covered_file_changes_the_hash()
     {
         for (var seed = 0; seed < Cases; seed++)
@@ -74,7 +74,7 @@ public class DeployManifestHashTests
         }
     }
 
-    [Fact(DisplayName = "Свойство: файлы вне specs/manifest и skills/*/SKILL.md не влияют на хэш")]
+    [Fact(DisplayName = "Свойство: файлы вне specs/manifest/*.yaml и skills/ не влияют на хэш")]
     public void Files_outside_the_covered_set_do_not_affect_the_hash()
     {
         for (var seed = 0; seed < Cases; seed++)
@@ -84,12 +84,31 @@ public class DeployManifestHashTests
 
             var before = DeployManifestHash.Compute(bundle.Root);
             File.WriteAllText(Path.Combine(bundle.Root, "specs", "manifest", "notes.txt"), "irrelevant");
-            Directory.CreateDirectory(Path.Combine(bundle.Root, "skills", "no-skill-md"));
-            File.WriteAllText(Path.Combine(bundle.Root, "skills", "no-skill-md", "readme.md"), "irrelevant");
+            File.WriteAllText(Path.Combine(bundle.Root, "root-level.txt"), "irrelevant");
 
             var after = DeployManifestHash.Compute(bundle.Root);
 
             after.Should().Be(before, Counterexample(seed, bundle));
+        }
+    }
+
+    [Fact(DisplayName = "Свойство: правка файла в skills/*/bin меняет хэш")]
+    public void Editing_a_file_under_skills_bin_changes_the_hash()
+    {
+        for (var seed = 0; seed < Cases; seed++)
+        {
+            var rng = new Random(seed);
+            using var bundle = Bundle.Generate(rng);
+            var binDir = Path.Combine(bundle.Root, "skills", $"tooling-{seed}", "bin");
+            Directory.CreateDirectory(binDir);
+            var binFile = Path.Combine(binDir, "throne-orchestrator");
+            File.WriteAllText(binFile, $"#!/bin/sh\necho {rng.Next()}\n");
+
+            var before = DeployManifestHash.Compute(bundle.Root);
+            File.AppendAllText(binFile, "\n# drift\n");
+            var after = DeployManifestHash.Compute(bundle.Root);
+
+            after.Should().NotBe(before, Counterexample(seed, bundle) + $", edited={binFile}");
         }
     }
 

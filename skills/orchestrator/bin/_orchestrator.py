@@ -266,9 +266,11 @@ def _has_verdict(body: dict | None) -> bool:
 
 
 def _pause_of(session: dict | None) -> dict | None:
-    """Пауза по лимиту вендора из ответа /terminal/session (ADR-0055): сессия жива,
-    но ждёт сброс. Без сообщения — оно длинное и в срез не нужно."""
-    if not session or session.get("session_state") != "paused_by_limit":
+    """Пауза по лимиту вендора из ответа /terminal/session (ADR-0055): сессия ждёт
+    сброс. Живая — paused_by_limit; умершая в паузе до перезапуска сторожем — exited,
+    но с limit_pause: это тоже пауза, а не исчезновение. Без сообщения — оно длинное
+    и в срез не нужно."""
+    if not session or session.get("session_state") not in ("paused_by_limit", "exited"):
         return None
     pause = session.get("limit_pause") or {}
     if "resume_at" not in pause:
@@ -283,16 +285,19 @@ def build_snapshot(
     sessions: dict[str, dict] | None = None,
 ) -> dict:
     sessions = sessions or {}
-    return {
-        item["id"]: {
+    snapshot = {}
+    for item in page:
+        pause = _pause_of(sessions.get(item["id"]))
+        snapshot[item["id"]] = {
             "status": item["status"],
-            "live": item["id"] in running,
+            # Умершая в паузе сессия — ещё исполнитель: Throne перезапустит её сам,
+            # для оркестратора и --wait это то же ожидание, а не «сессии нет».
+            "live": item["id"] in running or pause is not None,
             "title": _title(item),
             "verdict": _is_review(item) and _has_verdict(bodies.get(item["id"])),
-            "pause": _pause_of(sessions.get(item["id"])) if item["id"] in running else None,
+            "pause": pause,
         }
-        for item in page
-    }
+    return snapshot
 
 
 def watch_key(snapshot: dict) -> str:
@@ -348,6 +353,23 @@ def _read_sessions(sessions_dir: str | None, ids: set[str]) -> dict[str, dict]:
     return sessions
 
 
+def session_candidates(running: set[str], page: list[dict]) -> list[str]:
+    """У кого пробник может показать паузу: живые сессии и интенты в work без
+    сессии — последние либо правда без исполнителя, либо умерли в паузе и ждут
+    перезапуска сторожем."""
+    return [
+        item["id"]
+        for item in page
+        if item["id"] in running or item["status"] == "work"
+    ] + [id_ for id_ in sorted(running) if not any(item["id"] == id_ for item in page)]
+
+
+def session_candidates_cmd() -> None:
+    running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
+    page = json.load(sys.stdin)["items"]
+    print(" ".join(session_candidates(running, page)))
+
+
 def verdict_candidates_cmd() -> None:
     running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
     page = json.load(sys.stdin)["items"]
@@ -365,7 +387,7 @@ def watch_snapshot(bodies_dir: str, sessions_dir: str | None = None) -> None:
     running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
     page = json.load(sys.stdin)["items"]
     bodies = _read_bodies(bodies_dir, verdict_candidates(running, page))
-    sessions = _read_sessions(sessions_dir, running)
+    sessions = _read_sessions(sessions_dir, set(session_candidates(running, page)))
     print(json.dumps(build_snapshot(running, page, bodies, sessions), ensure_ascii=False, sort_keys=True))
 
 
@@ -455,6 +477,8 @@ def main() -> None:
         run_result(sys.argv[2])
     elif command == "verdict-candidates":
         verdict_candidates_cmd()
+    elif command == "session-candidates":
+        session_candidates_cmd()
     elif command == "watch-snapshot":
         watch_snapshot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     elif command == "watch-key":

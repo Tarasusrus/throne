@@ -46,13 +46,36 @@ def sessions(draw):
 
 
 @st.composite
+def dead_sessions(draw):
+    """Ответ пробника для интента без tmux-сессии: просто exited, либо exited с ещё
+    активной паузой — сессия умерла в паузе, сторож её поднимет после resume_at."""
+    body = {"session_state": "exited"}
+    if draw(st.booleans()):
+        minutes = draw(st.integers(min_value=-5, max_value=36 * 60))
+        body["limit_pause"] = {
+            "resume_at": (NOW + timedelta(minutes=minutes)).isoformat(),
+            "attempts": draw(st.integers(min_value=1, max_value=3)),
+            "message": "You've hit your monthly spend limit",
+        }
+    return body
+
+
+@st.composite
 def executors(draw):
+    live = draw(st.booleans())
     return {
         "id": draw(intent_id),
         "status": draw(st.sampled_from(STATUSES)),
-        "live": draw(st.booleans()),
-        "session": draw(sessions()),
+        "live": live,
+        "session": draw(sessions() if live else dead_sessions()),
     }
+
+
+def _paused(item):
+    session = item["session"]
+    if item["live"]:
+        return session["session_state"] == "paused_by_limit"
+    return "limit_pause" in session
 
 
 tag_pages = st.lists(executors(), max_size=6, unique_by=lambda i: i["id"])
@@ -61,7 +84,7 @@ tag_pages = st.lists(executors(), max_size=6, unique_by=lambda i: i["id"])
 def _snapshot(items):
     running = {i["id"] for i in items if i["live"]}
     page = [{"id": i["id"], "status": i["status"], "text_short": "задача " + i["id"]} for i in items]
-    sessions_by_id = {i["id"]: i["session"] for i in items if i["live"]}
+    sessions_by_id = {i["id"]: i["session"] for i in items}
     return orchestrator.build_snapshot(running, page, {}, sessions_by_id)
 
 
@@ -71,15 +94,35 @@ class TestPauseInSnapshot:
         snap = _snapshot(items)
         for item in items:
             row = snap[item["id"]]
-            paused = item["live"] and item["session"]["session_state"] == "paused_by_limit"
-            if paused:
+            if _paused(item):
                 assert row["pause"] == {
                     "resume_at": item["session"]["limit_pause"]["resume_at"],
                     "attempts": item["session"]["limit_pause"]["attempts"],
                 }
-                assert row["live"] is True, "пауза — живая сессия, не исчезновение"
+                assert row["live"] is True, "пауза — ожидание Throne, не исчезновение исполнителя"
             else:
                 assert row["pause"] is None
+                assert row["live"] is item["live"]
+
+    @given(tag_pages)
+    def test_dying_inside_pause_is_not_a_change(self, items):
+        """Сессия умерла в паузе до перезапуска: для --wait ничего не произошло."""
+        before = _snapshot(items)
+        died = [
+            {**i, "live": False, "session": {"session_state": "exited", "limit_pause": i["session"]["limit_pause"]}}
+            if i["live"] and _paused(i) else i
+            for i in items
+        ]
+        assert orchestrator.watch_key(_snapshot(died)) == orchestrator.watch_key(before)
+
+    def test_session_candidates_are_running_plus_working_without_session(self):
+        page = [
+            {"id": "a", "status": "work"},
+            {"id": "b", "status": "work"},
+            {"id": "c", "status": "awaiting_operator"},
+            {"id": "d", "status": "draft"},
+        ]
+        assert orchestrator.session_candidates({"a"}, page) == ["a", "b"]
 
     @given(tag_pages)
     def test_watch_key_ignores_pause(self, items):

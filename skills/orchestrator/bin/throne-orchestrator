@@ -148,9 +148,10 @@ cmd_list() {
     http_get "/api/v1/intents/${id}/task-tracker/cards"
     printf '%s' "${HTTP_BODY}" > "${cards_dir}/${id}.json"
   done
-  # Пауза по лимиту вендора видна только пробнику сессии (ADR-0055) — тянем его для живых.
+  # Пауза по лимиту вендора видна только пробнику сессии (ADR-0055) — тянем его для
+  # живых и для интентов в work без сессии (могли умереть в паузе, ждут перезапуска).
   local sessions_dir
-  sessions_dir="$(fetch_sessions "${tag}")"
+  sessions_dir="$(fetch_sessions "${tag}" "${page}")"
 
   local render="render"
   [[ ${json} -eq 1 ]] && render="render-json"
@@ -158,14 +159,14 @@ cmd_list() {
   rm -rf "${cards_dir}" "${sessions_dir}"
 }
 
-# Ответы GET /terminal/session для живых исполнителей тега — в каталог <id>.json.
-# Печатает путь каталога; вызывающий удаляет его сам. Только чтение.
+# Ответы GET /terminal/session для живых исполнителей тега и интентов тега в work без
+# сессии — в каталог <id>.json. Печатает путь каталога; вызывающий удаляет его сам. Только чтение.
 fetch_sessions() {
-  local tag="$1" query sessions_dir id
+  local tag="$1" page="$2" query sessions_dir id
   query="$(python3 "${HERE}/_orchestrator.py" list-query "${tag}")"
   sessions_dir="$(mktemp -d)"
   http_get "/api/v1/intents?${query}&terminal_running=true"
-  for id in $(printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" ids); do
+  for id in $(printf '%s\n%s' "${HTTP_BODY}" "${page}" | python3 "${HERE}/_orchestrator.py" session-candidates); do
     http_get "/api/v1/intents/${id}/terminal/session"
     printf '%s' "${HTTP_BODY}" > "${sessions_dir}/${id}.json"
   done
@@ -311,11 +312,12 @@ watch_snapshot() {
     http_get "/api/v1/intents/${candidate}"
     printf '%s' "${HTTP_BODY}" > "${bodies_dir}/${candidate}.json"
   done
-  # Живая сессия может стоять в паузе по лимиту вендора (ADR-0055): это видно только
-  # пробнику сессии. Пауза — расписание, не событие: в срез идёт, в ключ сравнения — нет.
+  # Сессия может стоять в паузе по лимиту вендора (ADR-0055): это видно только пробнику.
+  # Тянем его для живых и для интентов в work без сессии — вторые могли умереть в паузе
+  # и ждут перезапуска сторожем. Пауза — расписание, не событие: в срез идёт, в ключ — нет.
   local sessions_dir id
   sessions_dir="$(mktemp -d)"
-  for id in $(printf '%s' "${running}" | python3 "${HERE}/_orchestrator.py" ids); do
+  for id in $(printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" session-candidates); do
     http_get "/api/v1/intents/${id}/terminal/session"
     printf '%s' "${HTTP_BODY}" > "${sessions_dir}/${id}.json"
   done

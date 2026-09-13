@@ -23,7 +23,7 @@ for rel in specs/manifest skills; do
     drift=1
     continue
   fi
-  diff -rq "$REPO_ROOT/$rel" "$APP_DIR/$rel" || drift=1
+  diff -rq --exclude=.DS_Store "$REPO_ROOT/$rel" "$APP_DIR/$rel" || drift=1
 done
 
 if [[ $drift -ne 0 ]]; then

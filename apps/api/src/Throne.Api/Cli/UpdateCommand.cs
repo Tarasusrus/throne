@@ -47,7 +47,7 @@ internal static class UpdateCommand
 
         if (!force && string.Equals(latest, current, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"throne is up to date ({ThroneVersion.Current}).");
+            Console.WriteLine($"throne is up to date ({current}).");
             return 0;
         }
 
@@ -58,7 +58,7 @@ internal static class UpdateCommand
             return 1;
         }
 
-        Console.WriteLine($"Updating throne {ThroneVersion.Current} → {release.Tag} ({rid})…");
+        Console.WriteLine($"Updating throne {current} → {release.Tag} ({rid})…");
         try
         {
             await SelfUpdateInstaller.InstallAsync(http, asset, installDir, binaryPath, cts.Token);

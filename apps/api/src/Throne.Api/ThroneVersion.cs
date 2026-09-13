@@ -7,9 +7,11 @@ namespace Throne.Api;
 /// assembly's informational version (set by MSBuild <c>Version</c> / the release
 /// tag), consumed by the <c>/version</c> endpoint, <c>throne status</c> and
 /// <c>throne update</c>. Kept verbatim, including the "+&lt;commit-sha&gt;" build
-/// metadata install-local.sh stamps on local builds — that suffix is what makes a
-/// silently stale deploy visible, so it must not be dropped at the source. Strip
-/// it only at the point that needs a bare SemVer, via <see cref="WithoutBuildMetadata"/>.
+/// metadata — install-local.sh stamps it explicitly for local builds, and the .NET
+/// SDK appends it on its own for any build made inside a git checkout (so official
+/// release builds carry it too) — that suffix is what makes a silently stale
+/// deploy visible, so it must not be dropped at the source. Strip it only at the
+/// point that needs a bare SemVer, via <see cref="WithoutBuildMetadata"/>.
 /// </summary>
 public static class ThroneVersion
 {

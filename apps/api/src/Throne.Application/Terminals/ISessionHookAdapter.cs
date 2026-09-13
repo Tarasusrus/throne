@@ -26,6 +26,23 @@ public interface ISessionHookAdapter
     string? ReadinessHookEvent => null;
 
     /// <summary>
+    /// Extra argv tokens that make the vendor CLI continue the workspace's last conversation
+    /// instead of starting a new one (Claude: <c>--continue</c>). Appended by
+    /// <see cref="RunPreflightSpawn"/> only on a vendor-limit relaunch (ADR-0055). Empty when the
+    /// vendor has no such switch — the relaunch then starts fresh with the same rules and task.
+    /// </summary>
+    IReadOnlyList<string> ResumeArgs => [];
+
+    /// <summary>
+    /// The rules block the previous spawn of this workspace materialised, if the adapter keeps it
+    /// on disk (Claude's <c>--append-system-prompt-file</c> file). A relaunch after a vendor-limit
+    /// pause hands it back verbatim — the server does not recompose prompts on <c>run</c>
+    /// (ADR-0054 §3). Null when nothing is persisted.
+    /// </summary>
+    Task<string?> ReadPersistedSystemPromptAsync(string workspacePath, CancellationToken ct) =>
+        Task.FromResult<string?>(null);
+
+    /// <summary>
     /// Prepares the per-session spawn args for <paramref name="intentId"/> launched in
     /// <paramref name="workspacePath"/> with spawn <paramref name="mode"/> and returns the extra CLI
     /// tokens to append to the spawn argv. The mode is baked into the hook callback URL so the

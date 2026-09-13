@@ -7,7 +7,7 @@ namespace Throne.Application.Terminals;
 /// Resolved into a defaulted <see cref="TerminalLaunchOptions"/> by
 /// <see cref="TerminalLaunchResolver"/>.
 /// </summary>
-public sealed record TerminalLaunchInput(string? Vendor, string? Model, string? Effort);
+public sealed record TerminalLaunchInput(string? Vendor, string? Model, string? Effort, bool ResumeConversation = false);
 
 /// <summary>
 /// Resolves the optional, wire-level launch axis (vendor / model / effort) into a fully

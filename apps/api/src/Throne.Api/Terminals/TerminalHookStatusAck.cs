@@ -14,6 +14,7 @@ public sealed class TerminalHookStatusAck(
         string intentId,
         Event @event,
         TerminalRunMode? mode,
+        TerminalHookPayload? payload,
         CancellationToken ct
     )
     {
@@ -21,7 +22,7 @@ public sealed class TerminalHookStatusAck(
         try
         {
             await hookBus.PublishAsync(
-                new TerminalHookEvent(intentId, ToHookEvent(@event), domainMode, clock.GetUtcNow()),
+                new TerminalHookEvent(intentId, ToHookEvent(@event), domainMode, clock.GetUtcNow(), payload),
                 ct);
         }
         catch (ApiException ex)
@@ -38,6 +39,7 @@ public sealed class TerminalHookStatusAck(
             Event.SessionReady => TerminalHookEvents.SessionReady,
             Event.Notification => TerminalHookEvents.Notification,
             Event.PostToolUse => TerminalHookEvents.PostToolUse,
+            Event.StopFailure => TerminalHookEvents.StopFailure,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(@event),
                 $"Unknown terminal hook event '{@event}'."

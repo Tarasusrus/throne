@@ -94,7 +94,10 @@ public sealed class TerminalController(
     )
     {
         TerminalEndpointLog.HookReceived(logger, intent_id, @event);
-        await hookStatusAck.HandleAsync(intent_id, @event, mode, HttpContext.RequestAborted);
+        // The body is the vendor hook's stdin JSON forwarded verbatim (`curl -d @-`); OpenCode sends
+        // none. Read it tolerantly — a malformed body must never cost the status transition.
+        var payload = await TerminalHookPayloadReader.ReadAsync(HttpContext.Request, HttpContext.RequestAborted);
+        await hookStatusAck.HandleAsync(intent_id, @event, mode, payload, HttpContext.RequestAborted);
         return Ok();
     }
 

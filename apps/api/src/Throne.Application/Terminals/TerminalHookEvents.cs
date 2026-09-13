@@ -21,17 +21,27 @@ public static class TerminalHookEvents
     // to its spawn phase. Fires per tool call; the transition is idempotent in the domain.
     public const string PostToolUse = "PostToolUse";
 
+    // Claude fires StopFailure *instead of* Stop when an API error ended the turn (rate limit, auth,
+    // server error). Throne binds it with matcher `rate_limit` only: that is the vendor-limit
+    // event (ADR-0055) — the session is not parked, it waits for the reset. The body carries
+    // `error` and `last_assistant_message` (the limit line with the reset time).
+    public const string StopFailure = "StopFailure";
+
+
     /// <summary>
     /// Every event the status handler recognises. Injection is vendor-specific (see
     /// <see cref="ClaudeBindings"/> / <see cref="CodexBindings"/>); this is the recognise-side set.
     /// </summary>
     public static readonly IReadOnlyList<string> All =
-        [Stop, UserPromptSubmit, SessionReady, Notification, PostToolUse];
+        [Stop, UserPromptSubmit, SessionReady, Notification, PostToolUse, StopFailure];
 
     /// <summary>
     /// Claude Code binding set. Adds the permission-park pair on top of the turn-boundary pair: a
     /// <c>Notification</c> scoped by matcher to <c>permission_prompt</c> (so <c>auth_success</c> /
     /// <c>idle_prompt</c> never spuriously park), and <c>PostToolUse</c> to un-park after approval.
+    /// Matchers are regexes tested against the event's match field (<c>notification_type</c> for
+    /// Notification, <c>error</c> for StopFailure — verified in Claude Code 2.1.270), so one event
+    /// may carry several bindings; the adapter groups them per event.
     /// </summary>
     public static readonly IReadOnlyList<TerminalHookBinding> ClaudeBindings =
     [
@@ -39,6 +49,9 @@ public static class TerminalHookEvents
         new(UserPromptSubmit),
         new(Notification, Matcher: "permission_prompt"),
         new(PostToolUse),
+        // Vendor-limit pair (ADR-0055): the limit itself and Claude's own auto-continue outcome.
+        new(StopFailure, Matcher: VendorLimitHookSignals.RateLimitError),
+        new(Notification, Matcher: VendorLimitHookSignals.QuotaNotificationMatcher),
     ];
 
     /// <summary>
@@ -70,6 +83,29 @@ public static class TerminalHookEvents
         new("permission.replied", PostToolUse, OpenCodeBindingEvent),
         new("tool.execute.after", PostToolUse, OpenCodeBindingTypedHook),
     ];
+}
+
+/// <summary>
+/// Claude's wire tokens of its own usage-limit machinery (ADR-0055), read off hook bodies. Kept
+/// apart from <see cref="TerminalHookEvents"/>: these are match-field values, not hook events.
+/// <see cref="QuotaAutoResumeFired"/> = the session resumed on its own; <c>stale</c> /
+/// <c>disabled</c> = it gave up (slept through the reset, repeated hits, horizon &gt; 24 h) and
+/// Throne's sweep takes over.
+/// </summary>
+public static class VendorLimitHookSignals
+{
+    public const string RateLimitError = "rate_limit";
+    public const string QuotaAutoResumeFired = "quota_auto_resume_fired";
+    public const string QuotaAutoResumeStale = "quota_auto_resume_stale";
+    public const string QuotaAutoResumeDisabled = "quota_auto_resume_disabled";
+
+    /// <summary>Claude hook matchers are regexes over <c>notification_type</c> — one group covers the family.</summary>
+    public const string QuotaNotificationMatcher =
+        QuotaAutoResumeFired + "|" + QuotaAutoResumeStale + "|" + QuotaAutoResumeDisabled;
+
+    public static bool IsQuotaNotification(string? notificationType) =>
+        notificationType is not null
+        && notificationType.StartsWith("quota_auto_resume_", StringComparison.Ordinal);
 }
 
 /// <summary>

@@ -74,6 +74,35 @@ public class TerminalHookStatusHandlerTests
         await ReceivedNoStatusSet(repo);
     }
 
+    [Theory(DisplayName = "Notification о лимите (quota_auto_resume_*) — не парковка: статус не трогается")]
+    [InlineData(VendorLimitHookSignals.QuotaAutoResumeFired)]
+    [InlineData(VendorLimitHookSignals.QuotaAutoResumeStale)]
+    [InlineData(VendorLimitHookSignals.QuotaAutoResumeDisabled)]
+    public async Task Quota_notifications_do_not_park(string notificationType)
+    {
+        var (repo, handler) = NewHandler(currentStatus: IntentStatusNames.Work);
+
+        await handler.HandleAsync(
+            new TerminalHookEvent("intent-1", TerminalHookEvents.Notification, TerminalRunModes.Work, Now,
+                new TerminalHookPayload(null, null, notificationType, "Usage limit reset")),
+            CancellationToken.None);
+
+        await ReceivedNoStatusSet(repo);
+    }
+
+    [Fact(DisplayName = "StopFailure (лимит вендора) статус не трогает — сессия ждёт сброс, а не встала")]
+    public async Task Stop_failure_does_not_park()
+    {
+        var (repo, handler) = NewHandler(currentStatus: IntentStatusNames.Work);
+
+        await handler.HandleAsync(
+            new TerminalHookEvent("intent-1", TerminalHookEvents.StopFailure, TerminalRunModes.Work, Now,
+                new TerminalHookPayload("rate_limit", "You've hit your monthly spend limit", null, null)),
+            CancellationToken.None);
+
+        await ReceivedNoStatusSet(repo);
+    }
+
     [Fact(DisplayName = "Терминальный статус (done) хук не воскрешает")]
     public async Task Terminal_status_is_not_resurrected()
     {

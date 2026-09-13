@@ -24,6 +24,15 @@ internal static class TerminalRunResponseMapper
         {
             response.Launch = ToLaunchDto(launch);
         }
+        if (result.LimitPause is { } pause)
+        {
+            response.Limit_pause = new TerminalLimitPauseDto
+            {
+                Resume_at = pause.ResumeAt,
+                Attempts = pause.Attempts,
+                Message = pause.Message,
+            };
+        }
         return response;
     }
 
@@ -123,6 +132,7 @@ internal static class TerminalRunResponseMapper
     {
         TerminalSessionStates.Spawning => TerminalSessionState.Spawning,
         TerminalSessionStates.Running => TerminalSessionState.Running,
+        TerminalSessionStates.PausedByLimit => TerminalSessionState.Paused_by_limit,
         TerminalSessionStates.Blocked => TerminalSessionState.Blocked,
         TerminalSessionStates.Exited => TerminalSessionState.Exited,
         _ => throw new InvalidOperationException($"Unknown session_state '{state}'."),

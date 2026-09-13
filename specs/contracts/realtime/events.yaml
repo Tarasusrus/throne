@@ -225,6 +225,33 @@ events:
       properties:
         intent_id:
           type: string
+  terminal.limit_paused:
+    description: >
+      The session hit the vendor's usage limit and waits for the reset (ADR-0055). The intent
+      status is untouched — the session is alive in tmux; `resume_at` says until when. Best-effort
+      hint like the other terminal events: the status probe re-derives the pause on the next read.
+    payload:
+      type: object
+      required: [intent_id, resume_at, attempts]
+      properties:
+        intent_id:
+          type: string
+        resume_at:
+          type: string
+          format: date-time
+        attempts:
+          type: integer
+          format: int32
+  terminal.limit_resumed:
+    description: >
+      A session paused on the vendor limit is working again — the vendor continued on its own,
+      the agent made a tool call, or Throne relaunched it (ADR-0055).
+    payload:
+      type: object
+      required: [intent_id]
+      properties:
+        intent_id:
+          type: string
   terminal.prompt_submit_unconfirmed:
     description: >
       The background prompt delivery for a freshly spawned session could not confirm the

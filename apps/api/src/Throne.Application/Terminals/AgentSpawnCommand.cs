@@ -5,7 +5,12 @@ namespace Throne.Application.Terminals;
 /// already defaulted and whitelist-checked — <see cref="AgentSpawnCommand"/> trusts them.
 /// <see cref="Effort"/> is null for a vendor whose descriptor declares no effort axis.
 /// </summary>
-public sealed record TerminalLaunchOptions(string Vendor, string Model, string? Effort);
+/// <param name="ResumeConversation">
+/// Relaunch after a vendor-limit pause (ADR-0055): the vendor adapter's
+/// <see cref="ISessionHookAdapter.ResumeArgs"/> are appended so the CLI continues the workspace's
+/// last conversation instead of starting a fresh one. Never set by an operator run.
+/// </param>
+public sealed record TerminalLaunchOptions(string Vendor, string Model, string? Effort, bool ResumeConversation = false);
 
 /// <summary>
 /// Pre-split spawn invocation handed to <see cref="ITmuxSessionManager.SpawnAsync"/>:

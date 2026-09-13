@@ -27,6 +27,17 @@ public sealed class ClaudeSessionHookAdapter(
 
     public string Vendor => TerminalAgentCatalog.VendorClaude;
 
+    // `--continue` resumes the most recent conversation of the cwd (the intent workspace root, which
+    // is the tmux session cwd), so a relaunch after a vendor-limit pause keeps the agent's context.
+    public IReadOnlyList<string> ResumeArgs => ["--continue"];
+
+    public async Task<string?> ReadPersistedSystemPromptAsync(string workspacePath, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+        var path = Path.Combine(workspacePath, SystemPromptFileName);
+        return File.Exists(path) ? await File.ReadAllTextAsync(path, ct) : null;
+    }
+
     public async Task<IReadOnlyList<string>> PrepareSpawnArgsAsync(
         string intentId,
         string workspacePath,
@@ -82,13 +93,21 @@ public sealed class ClaudeSessionHookAdapter(
         && (paneSnapshot.Contains("esc to interrupt", StringComparison.OrdinalIgnoreCase)
             || paneSnapshot.Contains("Brewed for", StringComparison.OrdinalIgnoreCase));
 
+    // autoContinueAtUsageLimit: Claude Code's own «wait for the usage limit to reset and continue»
+    // (default on, but remotely flag-gated and toggleable by the operator's user settings) — set
+    // explicitly so a Throne session never depends on the operator's global choice (ADR-0055).
+    // Several bindings may target one hook event (Notification: permission_prompt and the
+    // quota_auto_resume_* family); Claude takes them as separate matcher groups under that event.
     private object BuildSettings(string intentId, string mode) =>
         new
         {
-            hooks = TerminalHookEvents.ClaudeBindings.ToDictionary(
-                binding => binding.Event,
-                binding => new[] { BuildHookGroup(binding, intentId, mode) },
-                StringComparer.Ordinal),
+            autoContinueAtUsageLimit = true,
+            hooks = TerminalHookEvents.ClaudeBindings
+                .GroupBy(binding => binding.Event, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(binding => BuildHookGroup(binding, intentId, mode)).ToArray(),
+                    StringComparer.Ordinal),
         };
 
     // A Claude hook group is `{ hooks: [...] }`, optionally prefixed with a `matcher` that scopes

@@ -29,6 +29,7 @@ public sealed class RunPreflightLaunchPlanner(
     {
         ArgumentNullException.ThrowIfNull(launch);
         var options = await resolver.ResolveAsync(launch.Vendor, launch.Model, launch.Effort, ct);
+        options = options with { ResumeConversation = launch.ResumeConversation };
         IReadOnlyDictionary<string, IReadOnlyList<string>> selections = EmptySelections;
         if (!string.IsNullOrWhiteSpace(intentId))
         {

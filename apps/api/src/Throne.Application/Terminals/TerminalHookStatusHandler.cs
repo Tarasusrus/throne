@@ -21,8 +21,19 @@ public sealed class TerminalHookStatusHandler(IIntentRepository repository, SetI
 {
     private const string SourcePrefix = "hook:terminal:";
 
-    public Task HandleAsync(TerminalHookEvent hook, CancellationToken ct) =>
-        HandleAsync(hook.IntentId, hook.Event, hook.Mode, ct);
+    public Task HandleAsync(TerminalHookEvent hook, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(hook);
+        // Claude's usage-limit auto-continue notifications ride the same Notification hook as the
+        // permission prompt but mean the opposite of «blocked on the operator» — the vendor-limit
+        // handler owns them (ADR-0055); here they are a status no-op.
+        if (hook.Event == TerminalHookEvents.Notification
+            && VendorLimitHookSignals.IsQuotaNotification(hook.Payload?.NotificationType))
+        {
+            return Task.CompletedTask;
+        }
+        return HandleAsync(hook.IntentId, hook.Event, hook.Mode, ct);
+    }
 
     public async Task HandleAsync(string intentId, string hookEvent, string? mode, CancellationToken ct)
     {

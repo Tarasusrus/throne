@@ -114,6 +114,12 @@ you is the vendor's own background monitor: every line the monitored command pri
 session as a notification, a notification re-invokes you, and your first tool call trips the status
 hook that moves you from `awaiting_operator` back to `work`.
 
+A review intent (`[REVIEW] …`) that has parked in `awaiting_operator` with a `## Вердикт` already
+written is not listed: its work is done, and without that rule every review round would leave one
+more dead row per task. A parked review intent *without* a verdict stays in the picture — the
+reviewer stopped before finishing, treat it like any executor that came back early. `--wait` still
+reports the move to `awaiting_operator` for both, so the verdict never arrives unnoticed.
+
 `watch` only reads. It never changes a status or touches a session.
 
 ### Standing watch in the background
@@ -162,8 +168,12 @@ The executor must not review its own branch, and neither do you — its report t
 `## Definition of Done`, `## Для человека` — creates a new review intent of your tag from them,
 links it to the child («ревью вытекает из задачи»), and launches a `verify` session on it. Nothing
 else crosses over: not `## Для агента`, not `## Отчёт`, not the executor's chat, not your journal.
-The command prints the review intent id first, then the usual session line. A body without
-`## Ветка` or without a non-empty DoD is refused before anything is created.
+The command prints the review intent id as soon as the intent exists — before the link and the
+session start — so if either fails, the id is on your screen. Do not run `review` again on reflex:
+that creates a second review intent for the same branch. Note the id in the journal, find out why
+the link or the launch failed, and only then decide whether a fresh `review` is warranted. A body
+without `## Ветка` or without a non-empty DoD is refused before anything is created; so is a body
+with an unclosed code fence, which would hide those sections — the error names the fence line.
 
 `--vendor`/`--model`/`--effort` work exactly as for `run`. One reviewer at a time, for the same
 reasons as one executor: the spawn is synchronous and the vendor trust file is shared.
@@ -176,7 +186,10 @@ change code and does not push. Wait for it with `watch` like for any executor, t
 verdict: `THRONE_INTENT_ID=<review id> skills/intent/bin/throne-intent get`.
 
 Each `review` call creates a fresh review intent — a verdict belongs to one state of the branch, and
-a re-run after rework gets its own.
+a re-run after rework gets its own. After you have read the verdict, leave the review intent where it
+is: it stays in `awaiting_operator` as the record of that round, `watch` no longer lists it, and its
+id goes into your journal next to the decision. You do not change its status — statuses are the
+operator's, who closes review intents when tidying the tag.
 
 ## Accepting their work
 

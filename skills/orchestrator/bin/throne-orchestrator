@@ -41,7 +41,8 @@ review — поднять независимого ревьюера на вет�
 stop — погасить сессию исполнителя. Идемпотентно.
 
 watch — картина по исполнителям: у кого живая сессия, кто ушёл в awaiting_operator
-или done. Без флагов — мгновенный срез. С --wait ждёт первого изменения, но не
+или done. Ревью-интент с записанным ## Вердикт не показывается — своё он сделал.
+Без флагов — мгновенный срез. С --wait ждёт первого изменения, но не
 дольше --timeout (по умолчанию 600 с, потолок 900 с): фонового наблюдения контур
 не даёт, ожидание живёт внутри хода. Истёкший таймаут — не ошибка.
 
@@ -277,14 +278,22 @@ cmd_stop() {
 
 # Только чтение: watch не двигает ни статусы, ни сессии.
 watch_snapshot() {
-  local tag="$1" running page query
+  local tag="$1" running page query bodies_dir candidate
   # Тот же urlencode, что и в list: сырая интерполяция тега молча портит запрос.
   query="$(python3 "${HERE}/_orchestrator.py" list-query "${tag}")"
   http_get "/api/v1/intents?${query}&terminal_running=true"
   running="${HTTP_BODY}"
   http_get "/api/v1/intents?${query}"
   page="${HTTP_BODY}"
-  printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" watch-snapshot
+  # Список отдаёт обрезок текста — есть ли `## Вердикт`, видно только по полному
+  # телу. Тянем его для вставших ревью-интентов, остальным лишний GET не нужен.
+  bodies_dir="$(mktemp -d)"
+  for candidate in $(printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" verdict-candidates); do
+    http_get "/api/v1/intents/${candidate}"
+    printf '%s' "${HTTP_BODY}" > "${bodies_dir}/${candidate}.json"
+  done
+  printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" watch-snapshot "${bodies_dir}"
+  rm -rf "${bodies_dir}"
 }
 
 cmd_watch() {

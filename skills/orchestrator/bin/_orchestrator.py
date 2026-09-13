@@ -236,27 +236,79 @@ def run_result(target: str) -> None:
         print("  не склонировано: " + ", ".join(blocking))
 
 
-def watch_snapshot() -> None:
-    """Срез: статус каждого интента тега + признак живой сессии.
+REVIEW_PREFIX = "[REVIEW]"
+
+
+def _is_review(item: dict) -> bool:
+    return _title(item).startswith(REVIEW_PREFIX)
+
+
+def verdict_candidates(running: set[str], page: list[dict]) -> list[str]:
+    """У кого вердикт вообще может быть: ревью-интент встал в awaiting_operator без
+    сессии. Только им watch тянет полное тело — в списке лежит обрезок в 140 символов."""
+    return [
+        item["id"]
+        for item in page
+        if _is_review(item) and item["status"] == "awaiting_operator" and item["id"] not in running
+    ]
+
+
+def _has_verdict(body: dict | None) -> bool:
+    if body is None:
+        return False
+    return bool("\n".join(_split_sections(body.get("text") or "").get("Вердикт", [])).strip())
+
+
+def build_snapshot(running: set[str], page: list[dict], bodies: dict[str, dict]) -> dict:
+    return {
+        item["id"]: {
+            "status": item["status"],
+            "live": item["id"] in running,
+            "title": _title(item),
+            "verdict": _is_review(item) and _has_verdict(bodies.get(item["id"])),
+        }
+        for item in page
+    }
+
+
+def _read_bodies(bodies_dir: str, ids: list[str]) -> dict[str, dict]:
+    bodies = {}
+    for intent_id in ids:
+        path = os.path.join(bodies_dir, intent_id + ".json")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as handle:
+                bodies[intent_id] = json.load(handle)
+    return bodies
+
+
+def verdict_candidates_cmd() -> None:
+    running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
+    page = json.load(sys.stdin)["items"]
+    print(" ".join(verdict_candidates(running, page)))
+
+
+def watch_snapshot(bodies_dir: str) -> None:
+    """Срез: статус каждого интента тега + признак живой сессии + есть ли вердикт
+    у ревью-интента (тела кандидатов лежат в bodies_dir как <id>.json).
 
     Печатается отсортированным JSON, чтобы сравнение двух срезов было
     посимвольным — дельта не зависит от порядка, в котором сервер отдал страницу.
     """
     running = {item["id"] for item in json.loads(sys.stdin.readline())["items"]}
-    page = json.load(sys.stdin)
-    snapshot = {
-        item["id"]: {
-            "status": item["status"],
-            "live": item["id"] in running,
-            "title": _title(item),
-        }
-        for item in page["items"]
-    }
-    print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True))
+    page = json.load(sys.stdin)["items"]
+    bodies = _read_bodies(bodies_dir, verdict_candidates(running, page))
+    print(json.dumps(build_snapshot(running, page, bodies), ensure_ascii=False, sort_keys=True))
 
 
 def _executors(snapshot: dict) -> list[tuple[str, dict]]:
-    return [(k, v) for k, v in snapshot.items() if v["live"] or v["status"] == "awaiting_operator"]
+    """Строки исполнителей. Ревью-интент с записанным вердиктом свою работу сделал:
+    он паркуется в awaiting_operator навсегда, и без этого фильтра каждый круг ревью
+    оставлял бы в watch мёртвую строку."""
+    return [
+        (k, v)
+        for k, v in snapshot.items()
+        if v["live"] or (v["status"] == "awaiting_operator" and not v.get("verdict"))
+    ]
 
 
 def watch_render() -> None:
@@ -319,8 +371,10 @@ def main() -> None:
             sys.exit(str(exc))
     elif command == "run-result":
         run_result(sys.argv[2])
+    elif command == "verdict-candidates":
+        verdict_candidates_cmd()
     elif command == "watch-snapshot":
-        watch_snapshot()
+        watch_snapshot(sys.argv[2])
     elif command == "watch-render":
         watch_render()
     elif command == "watch-delta":

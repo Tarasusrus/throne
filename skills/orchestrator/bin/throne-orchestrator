@@ -42,9 +42,11 @@ stop — погасить сессию исполнителя. Идемпоте�
 
 watch — картина по исполнителям: у кого живая сессия, кто ушёл в awaiting_operator
 или done. Ревью-интент с записанным ## Вердикт не показывается — своё он сделал.
-Без флагов — мгновенный срез. С --wait ждёт первого изменения, но не
-дольше --timeout (по умолчанию 600 с, потолок 900 с): фонового наблюдения контур
-не даёт, ожидание живёт внутри хода. Истёкший таймаут — не ошибка.
+Живая сессия, упёршаяся в лимит вендора, показывается как «пауза до HH:MM»: она не
+встала и не пропала, Throne поднимет её сам. Без флагов — мгновенный срез. С --wait
+ждёт первого изменения, но не дольше --timeout (по умолчанию 600 с, потолок 900 с):
+фонового наблюдения контур не даёт, ожидание живёт внутри хода. Уход в паузу по
+лимиту и выход из неё изменением не считаются. Истёкший таймаут — не ошибка.
 
 accept — детерминированная часть приёмки ветки исполнителя в клоне оркестратора:
 fetch, подтянуть основную ветку, слить --no-ff, прогнать --check, запушить.
@@ -146,11 +148,28 @@ cmd_list() {
     http_get "/api/v1/intents/${id}/task-tracker/cards"
     printf '%s' "${HTTP_BODY}" > "${cards_dir}/${id}.json"
   done
+  # Пауза по лимиту вендора видна только пробнику сессии (ADR-0055) — тянем его для живых.
+  local sessions_dir
+  sessions_dir="$(fetch_sessions "${tag}")"
 
   local render="render"
   [[ ${json} -eq 1 ]] && render="render-json"
-  printf '%s' "${page}" | python3 "${HERE}/_orchestrator.py" "${render}" "${cards_dir}"
-  rm -rf "${cards_dir}"
+  printf '%s' "${page}" | python3 "${HERE}/_orchestrator.py" "${render}" "${cards_dir}" "${sessions_dir}"
+  rm -rf "${cards_dir}" "${sessions_dir}"
+}
+
+# Ответы GET /terminal/session для живых исполнителей тега — в каталог <id>.json.
+# Печатает путь каталога; вызывающий удаляет его сам. Только чтение.
+fetch_sessions() {
+  local tag="$1" query sessions_dir id
+  query="$(python3 "${HERE}/_orchestrator.py" list-query "${tag}")"
+  sessions_dir="$(mktemp -d)"
+  http_get "/api/v1/intents?${query}&terminal_running=true"
+  for id in $(printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" ids); do
+    http_get "/api/v1/intents/${id}/terminal/session"
+    printf '%s' "${HTTP_BODY}" > "${sessions_dir}/${id}.json"
+  done
+  printf '%s' "${sessions_dir}"
 }
 
 # Гард скоупа — клиентский: сервер разрешает запуск на любом интенте (ADR-0029,
@@ -292,8 +311,16 @@ watch_snapshot() {
     http_get "/api/v1/intents/${candidate}"
     printf '%s' "${HTTP_BODY}" > "${bodies_dir}/${candidate}.json"
   done
-  printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" watch-snapshot "${bodies_dir}"
-  rm -rf "${bodies_dir}"
+  # Живая сессия может стоять в паузе по лимиту вендора (ADR-0055): это видно только
+  # пробнику сессии. Пауза — расписание, не событие: в срез идёт, в ключ сравнения — нет.
+  local sessions_dir id
+  sessions_dir="$(mktemp -d)"
+  for id in $(printf '%s' "${running}" | python3 "${HERE}/_orchestrator.py" ids); do
+    http_get "/api/v1/intents/${id}/terminal/session"
+    printf '%s' "${HTTP_BODY}" > "${sessions_dir}/${id}.json"
+  done
+  printf '%s\n%s' "${running}" "${page}" | python3 "${HERE}/_orchestrator.py" watch-snapshot "${bodies_dir}" "${sessions_dir}"
+  rm -rf "${bodies_dir}" "${sessions_dir}"
 }
 
 cmd_watch() {
@@ -317,11 +344,14 @@ cmd_watch() {
     return 0
   fi
 
+  local baseline_key current_key
+  baseline_key="$(printf '%s' "${baseline}" | python3 "${HERE}/_orchestrator.py" watch-key)"
   while (( waited < timeout )); do
     sleep 15
     waited=$(( waited + 15 ))
     current="$(watch_snapshot "${tag}")"
-    if [[ "${current}" != "${baseline}" ]]; then
+    current_key="$(printf '%s' "${current}" | python3 "${HERE}/_orchestrator.py" watch-key)"
+    if [[ "${current_key}" != "${baseline_key}" ]]; then
       printf '%s\n%s' "${baseline}" "${current}" | python3 "${HERE}/_orchestrator.py" watch-delta
       return 0
     fi

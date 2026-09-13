@@ -120,6 +120,15 @@ more dead row per task. A parked review intent *without* a verdict stays in the 
 reviewer stopped before finishing, treat it like any executor that came back early. `--wait` still
 reports the move to `awaiting_operator` for both, so the verdict never arrives unnoticed.
 
+An executor that hit the vendor's usage limit is neither stopped nor gone: its session is alive in
+tmux and waits for the reset, so `watch` shows it as `пауза до HH:MM (лимит вендора)` instead of
+`работает`, and `list` marks the same row with `⏸`. Throne resumes it on its own — the vendor's
+auto-continue first, Throne's own push after the reset — so do nothing: not `stop`, not `run`, not a
+report to the operator. `--wait` treats entering and leaving the pause as no change; a repeated
+limit right after a resume becomes another pause, and only past the attempt ceiling does the intent
+land in `awaiting_operator` with the reason — that one you handle like any parked executor
+(ADR-0055).
+
 `watch` only reads. It never changes a status or touches a session.
 
 ### Standing watch in the background

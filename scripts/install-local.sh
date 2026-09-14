@@ -27,6 +27,9 @@ done
 export PATH="$HOME/.dotnet:$PATH"
 command -v dotnet >/dev/null || { echo "dotnet SDK не найден" >&2; exit 1; }
 
+# Идемпотентно: копирует только если .git/hooks/commit-msg нет или отличается.
+(cd "$REPO_ROOT" && bash scripts/git-hooks/install.sh)
+
 if [[ $build_web -eq 1 ]]; then
   pnpm -C "$REPO_ROOT/apps/web" build
 fi

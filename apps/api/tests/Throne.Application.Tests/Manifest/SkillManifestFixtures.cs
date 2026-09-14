@@ -60,4 +60,28 @@ internal static class SkillManifestFixtures
             "Cannot locate repo-root throne-system-prompt-parts.yaml (looked for specs/manifest/throne-system-prompt-parts.yaml + specs/AGENTS.local.md) walking up from " +
             AppContext.BaseDirectory);
     }
+
+    /// <summary>
+    /// Parsed repo-root user-prompt seed (ADR-0051) — the artefact the commit-trailer
+    /// prompt contract test asserts against. Same walk-up strategy as <see cref="RepoManifest"/>.
+    /// </summary>
+    public static UserPromptSeed RepoUserPromptSeed() => UserPromptSeedParser.Parse(File.ReadAllText(RepoUserPromptSeedPath()));
+
+    public static string RepoUserPromptSeedPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var seedPath = Path.Combine(dir.FullName, "specs", "manifest", "throne-user-prompt-seed-parts.yaml");
+            var anchor = Path.Combine(dir.FullName, "specs", "AGENTS.local.md");
+            if (File.Exists(seedPath) && File.Exists(anchor))
+            {
+                return seedPath;
+            }
+            dir = dir.Parent;
+        }
+        throw new FileNotFoundException(
+            "Cannot locate repo-root throne-user-prompt-seed-parts.yaml (looked for specs/manifest/throne-user-prompt-seed-parts.yaml + specs/AGENTS.local.md) walking up from " +
+            AppContext.BaseDirectory);
+    }
 }

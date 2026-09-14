@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Проверяет формат трейлеров коммита (стандарт утверждён оператором 14.09):
+# последние три непустые строки сообщения — Problem/Decision/Task, в этом
+# порядке, каждая ≤160 символов. Merge- и Revert-коммиты — вне проверки.
+#
+# Repo-local: живёт в .git/hooks/commit-msg (см. scripts/git-hooks/install.sh).
+# Глобальный хук оператора (~/.git-hooks/commit-msg, режет AI-атрибуцию) сам
+# чейнит сюда через exec — здесь его не трогаем.
+#
+# Одна реализация: scripts/quality/commit-message-trailers-check.sh (гейт по
+# origin/master..HEAD) вызывает этот же файл на каждый коммит, а не
+# дублирует правило.
+set -euo pipefail
+
+LIMIT=160
+MSG_FILE="$1"
+
+lines=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  case "$line" in
+    '#'*) continue ;;
+  esac
+  lines+=("$line")
+done < "$MSG_FILE"
+
+first_line="${lines[0]:-}"
+case "$first_line" in
+  "Merge "*) exit 0 ;;
+  'Revert "'*'"') exit 0 ;;
+esac
+
+non_empty=()
+for line in "${lines[@]:-}"; do
+  if [[ -n "${line//[[:space:]]/}" ]]; then
+    non_empty+=("$line")
+  fi
+done
+
+example() {
+  cat >&2 <<'EOF'
+
+Ожидаемый формат (последние три непустые строки, в этом порядке):
+  Problem: <проблема или ограничение, из-за которого правка>
+  Decision: <что сделали и почему так, а не иначе; отвергнутая альтернатива одной фразой>
+  Task: <короткое имя задачи словами, не хэш>
+EOF
+}
+
+fail() {
+  echo "commit-msg: $1" >&2
+  example
+  exit 1
+}
+
+count=${#non_empty[@]}
+if (( count < 3 )); then
+  fail "меньше трёх непустых строк в сообщении"
+fi
+
+problem_line="${non_empty[count-3]}"
+decision_line="${non_empty[count-2]}"
+task_line="${non_empty[count-1]}"
+
+[[ "$problem_line" =~ ^Problem:\ .+$ ]] || fail "третья с конца строка должна быть 'Problem: ...', получено: $problem_line"
+[[ "$decision_line" =~ ^Decision:\ .+$ ]] || fail "вторая с конца строка должна быть 'Decision: ...', получено: $decision_line"
+[[ "$task_line" =~ ^Task:\ .+$ ]] || fail "последняя строка должна быть 'Task: ...', получено: $task_line"
+
+for line in "$problem_line" "$decision_line" "$task_line"; do
+  if (( ${#line} > LIMIT )); then
+    fail "строка длиннее $LIMIT символов: $line"
+  fi
+done
+
+exit 0

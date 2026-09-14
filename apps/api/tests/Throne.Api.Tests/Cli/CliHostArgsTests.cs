@@ -53,10 +53,40 @@ public class CliHostArgsTests
     [Fact]
     public void Default_home_does_not_override_persistence_or_workspace()
     {
-        var request = CliRequest.Parse(["-a"]);
+        // No --home ⇒ THRONE_HOME is the only source of a home override. Inject "unset"
+        // through the env seam rather than reading the real process environment, so this
+        // test is not at the mercy of whoever launched the test run (e.g. a Throne session
+        // that sets THRONE_HOME for itself).
+        var request = CliRequest.Parse(["-a"], getEnvironmentVariable: _ => null);
 
+        request.Home.IsExplicit.Should().BeFalse();
         request.HostArgs.Should().NotContain(a => a.Contains("Persistence:Sqlite:DataSource=", StringComparison.Ordinal));
         request.HostArgs.Should().NotContain(a => a.Contains("Throne:Workspace:Root=", StringComparison.Ordinal));
+    }
+
+    // Property: whatever THRONE_HOME happens to be set to in the caller's environment,
+    // as long as no --home flag is given the home stays whatever that value resolves to,
+    // and the persistence/workspace keys are appended if and only if the home is explicit
+    // (i.e. THRONE_HOME is non-blank) — never based on which process launched the test.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("/some/throne-home")]
+    [InlineData("/Users/someone/.throne-session-xyz")]
+    [InlineData("relative/throne-home")]
+    [InlineData("~/.throne-alt")]
+    public void Home_explicitness_and_appended_keys_track_only_the_injected_env_value(string? throneHomeEnv)
+    {
+        var request = CliRequest.Parse(["-a"], getEnvironmentVariable: _ => throneHomeEnv);
+
+        var expectedExplicit = !string.IsNullOrWhiteSpace(throneHomeEnv);
+        request.Home.IsExplicit.Should().Be(expectedExplicit);
+
+        var hasDataSource = request.HostArgs.Any(a => a.Contains("Persistence:Sqlite:DataSource=", StringComparison.Ordinal));
+        var hasWorkspaceRoot = request.HostArgs.Any(a => a.Contains("Throne:Workspace:Root=", StringComparison.Ordinal));
+        hasDataSource.Should().Be(expectedExplicit);
+        hasWorkspaceRoot.Should().Be(expectedExplicit);
     }
 
     [Fact]

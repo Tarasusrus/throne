@@ -32,11 +32,17 @@ internal sealed class ThroneHome
 
     public string WorkspacesRoot => Path.Combine(Directory, "workspaces");
 
-    public static ThroneHome Resolve(string? overrideDir)
+    /// <summary>
+    /// Resolves the home. <paramref name="getEnvironmentVariable"/> is the THRONE_HOME
+    /// lookup seam (defaults to the real process environment) so callers — tests, chiefly —
+    /// can inject a value instead of mutating the actual environment.
+    /// </summary>
+    public static ThroneHome Resolve(string? overrideDir, Func<string, string?>? getEnvironmentVariable = null)
     {
+        var getEnv = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
         var explicitDir = !string.IsNullOrWhiteSpace(overrideDir)
             ? overrideDir
-            : Environment.GetEnvironmentVariable("THRONE_HOME");
+            : getEnv("THRONE_HOME");
 
         if (!string.IsNullOrWhiteSpace(explicitDir))
         {

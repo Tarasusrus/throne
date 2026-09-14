@@ -31,19 +31,28 @@ public class ThroneHomeTests
     [Fact]
     public void Default_home_is_under_user_profile_and_not_explicit()
     {
-        var previous = Environment.GetEnvironmentVariable("THRONE_HOME");
-        Environment.SetEnvironmentVariable("THRONE_HOME", null);
-        try
-        {
-            var home = ThroneHome.Resolve(null);
+        // Inject "unset" through the env seam instead of mutating the real process
+        // environment: THRONE_HOME may legitimately be set by whoever launched the test
+        // run (e.g. a Throne session), and this test must not depend on that.
+        var home = ThroneHome.Resolve(null, getEnvironmentVariable: _ => null);
 
-            home.IsExplicit.Should().BeFalse();
-            home.Directory.Should().Be(
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".throne"));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("THRONE_HOME", previous);
-        }
+        home.IsExplicit.Should().BeFalse();
+        home.Directory.Should().Be(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".throne"));
+    }
+
+    // Property: whatever THRONE_HOME resolves to, the override always wins and marks the
+    // home explicit — a blank/absent value is the only case that falls back to the default.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("/srv/throne-a")]
+    [InlineData("/Users/someone/.throne-session-xyz")]
+    public void Explicitness_tracks_only_the_injected_env_value(string? throneHomeEnv)
+    {
+        var home = ThroneHome.Resolve(null, getEnvironmentVariable: _ => throneHomeEnv);
+
+        home.IsExplicit.Should().Be(!string.IsNullOrWhiteSpace(throneHomeEnv));
     }
 }

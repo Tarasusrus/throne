@@ -26,7 +26,12 @@ internal sealed record CliRequest(
 {
     public const string DefaultUrl = "http://localhost:5008";
 
-    public static CliRequest Parse(string[] args)
+    /// <summary>
+    /// Parses one invocation. <paramref name="getEnvironmentVariable"/> is the THRONE_HOME
+    /// lookup seam threaded to <see cref="ThroneHome.Resolve"/> (defaults to the real
+    /// process environment); tests inject a value here instead of mutating the environment.
+    /// </summary>
+    public static CliRequest Parse(string[] args, Func<string, string?>? getEnvironmentVariable = null)
     {
         ArgumentNullException.ThrowIfNull(args);
 
@@ -68,7 +73,7 @@ internal sealed record CliRequest(
 
         var command = MapCommand(rest.Count > 0 ? rest[0] : null);
         var passthrough = command == CliCommand.Start ? rest.ToArray() : rest.Skip(1).ToArray();
-        var home = ThroneHome.Resolve(homeOverride);
+        var home = ThroneHome.Resolve(homeOverride, getEnvironmentVariable);
 
         return new CliRequest(
             command,

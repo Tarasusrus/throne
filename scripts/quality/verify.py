@@ -145,6 +145,10 @@ def gate_backend_suppressions(_g: dict, root: pathlib.Path) -> int:
     return run(["python3", "scripts/quality/suppression_audit.py", "check"], root)
 
 
+def gate_commit_message_trailers(_g: dict, root: pathlib.Path) -> int:
+    return run(["bash", "scripts/quality/commit-message-trailers-check.sh"], root)
+
+
 def web(root: pathlib.Path) -> pathlib.Path:
     return root / "apps" / "web"
 
@@ -206,6 +210,7 @@ GATE_RUNNERS: dict[str, Callable[[dict, pathlib.Path], int]] = {
     "backend-duplicates": gate_backend_duplicates,
     "backend-audit": gate_backend_audit,
     "backend-suppressions": gate_backend_suppressions,
+    "commit-message-trailers": gate_commit_message_trailers,
     "frontend-deps": gate_frontend_deps,
     "frontend-format": gate_frontend_format,
     "frontend-lint": gate_frontend_lint,

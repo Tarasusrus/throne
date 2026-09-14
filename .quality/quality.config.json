@@ -79,6 +79,12 @@
       "description": "Ratchet over per-file analyzer suppressions in apps/api/.editorconfig + #pragma warning disable. Baseline: .quality/suppress-baseline.json. New entries must cite intent:<id> or ADR-NNNN within 15 preceding lines AND require an explicit re-baseline commit."
     },
     {
+      "id": "commit-message-trailers",
+      "scope": "backend",
+      "enabled": true,
+      "description": "Коммиты origin/master..HEAD заканчиваются трейлерами Problem/Decision/Task (та же проверка, что commit-msg хук). Зелёный на master без новых коммитов."
+    },
+    {
       "id": "frontend-deps",
       "scope": "frontend",
       "enabled": true,

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Throne.Application.Ports;
@@ -26,6 +27,14 @@ internal sealed class GitObjectCacheSync(
 {
     public string ResolvedRoot { get; } = GitObjectCachePathLayout.ExpandRoot(options.Value.Root);
 
+    // Two intents landing on the same machine at the same moment can both ask to prime the
+    // same repo's mirror before either sees a directory on disk. Without serializing on the
+    // cache path, both race into `git clone --bare` on the same target — the loser fails with
+    // "destination path already exists" and its failure handler used to delete the directory
+    // out from under the winner, wiping the mirror the winner had just finished building.
+    // Keyed per cache path (not a single lock) so unrelated repos still prime concurrently.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
+
     /// <summary>
     /// Ensures the mirror for <paramref name="host"/>/<paramref name="owner"/>/<paramref name="repo"/>
     /// exists and is reasonably fresh, creating it via <paramref name="cloneBareAsync"/> the first
@@ -42,6 +51,8 @@ internal sealed class GitObjectCacheSync(
     {
         var cachePath = GitObjectCachePathLayout.Compute(ResolvedRoot, host, owner, repo);
         var fullName = $"{owner}/{repo}";
+        var gate = _locks.GetOrAdd(cachePath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
             if (Directory.Exists(cachePath))
@@ -77,6 +88,10 @@ internal sealed class GitObjectCacheSync(
         {
             GitObjectCacheSyncLog.Unexpected(log, fullName, ex);
             return null;
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 

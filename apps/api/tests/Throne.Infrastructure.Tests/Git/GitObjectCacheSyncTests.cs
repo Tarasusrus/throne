@@ -129,6 +129,55 @@ public class GitObjectCacheSyncTests : IDisposable
         result.Should().BeNull();
     }
 
+    [Fact(DisplayName = "Два параллельных приминга одного кэша: клонирует один раз, второй ждёт готовый кэш, ни один не удаляет чужой каталог")]
+    public async Task Concurrent_cold_priming_of_same_cache_clones_once()
+    {
+        var sync = BuildSync();
+        var cachePath = GitObjectCachePathLayout.Compute(sync.ResolvedRoot, "github.com", "alice", "throne");
+        _launcher.RunAsync(Arg.Any<ProcessRunRequest>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(Ok()));
+
+        var cloneStarted = new SemaphoreSlim(0, 1);
+        var releaseClone = new SemaphoreSlim(0, 1);
+        var cloneCalls = 0;
+
+        // Первый вызов встаёт внутри делегата клона (имитирует долгий `git clone --bare`),
+        // второй стартует, пока первый ещё не создал каталог на диске — раньше оба видели
+        // Directory.Exists == false и оба лезли в git clone на один и тот же путь.
+        var first = sync.EnsureUpToDateAsync(
+            "github.com", "alice", "throne",
+            async (path, ct) =>
+            {
+                Interlocked.Increment(ref cloneCalls);
+                cloneStarted.Release();
+                await releaseClone.WaitAsync(ct);
+                Directory.CreateDirectory(path);
+                return Ok();
+            },
+            default);
+
+        await cloneStarted.WaitAsync();
+
+        var second = sync.EnsureUpToDateAsync(
+            "github.com", "alice", "throne",
+            (path, ct) =>
+            {
+                Interlocked.Increment(ref cloneCalls);
+                return Task.FromResult(Ok());
+            },
+            default);
+
+        // Второй вызов должен блокироваться на локе, а не гонять собственный git clone —
+        // дать ему шанс (неправильно) продвинуться, прежде чем отпускать первый.
+        await Task.Delay(50);
+        releaseClone.Release();
+
+        var results = await Task.WhenAll(first, second);
+
+        cloneCalls.Should().Be(1, "второй вызов обязан дождаться готового кэша, а не запускать свой bare-clone");
+        results.Should().AllSatisfy(r => r.Should().Be(cachePath));
+        Directory.Exists(cachePath).Should().BeTrue("готовый кэш первого вызова не должен быть удалён вторым");
+    }
+
     private static ProcessRunResult Ok(string stdout = "") =>
         new(ExitCode: 0, StandardOutput: stdout, StandardError: string.Empty, Elapsed: TimeSpan.Zero);
 

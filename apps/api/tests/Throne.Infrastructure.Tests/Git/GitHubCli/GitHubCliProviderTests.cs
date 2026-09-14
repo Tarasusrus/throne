@@ -9,8 +9,10 @@ namespace Throne.Infrastructure.Tests.Git.GitHubCli;
 /// <summary>
 /// Happy-path coverage of <see cref="Throne.Infrastructure.Git.GitHubCli.GitHubCliProvider"/>
 /// — verifies command-line shape and successful parsing per method. Error
-/// mapping branches live in <see cref="GitHubCliProviderErrorsTests"/> so this
-/// class stays inside the maintainability budget.
+/// mapping branches live in <see cref="GitHubCliProviderErrorsTests"/>, and the
+/// object-cache-priming / interrupted-checkout-repair branches of
+/// <c>CloneRepositoryAsync</c> live in <see cref="GitHubCliProviderCloneCacheTests"/>,
+/// so this class stays inside the maintainability budget.
 /// </summary>
 public class GitHubCliProviderTests
 {
@@ -22,7 +24,6 @@ public class GitHubCliProviderTests
         [{"name":"shared","owner":{"login":"orgA"},"default_branch":"main","private":true}]
         """;
 
-    private static readonly string[] CloneArgs = ["repo", "clone", "alice/throne", "/tmp/x", "--", "--filter=blob:none"];
     private static readonly string[] SyncArgs = ["repo", "sync"];
     private static readonly string[] AuthArgs = ["api", "user", "-i"];
 
@@ -81,17 +82,7 @@ public class GitHubCliProviderTests
         repos.Should().ContainSingle().Which.Repo.Should().Be("throne");
     }
 
-    [Fact(DisplayName = "CloneRepositoryAsync вызывает gh repo clone owner/repo target")]
-    public async Task Clone_invokes_repo_clone()
-    {
-        _fx.OnRun(_ => GitHubCliProviderFixture.Ok(string.Empty));
-
-        await _fx.Provider.CloneRepositoryAsync("alice", "throne", "/tmp/x", CloneCheckout.None, default);
-
-        _fx.Calls.Single().Arguments.Should().BeEquivalentTo(CloneArgs);
-    }
-
-    [Fact(DisplayName = "CloneRepositoryAsync переиспользует существующий клон (no-op при наличии .git)")]
+    [Fact(DisplayName = "CloneRepositoryAsync переиспользует существующий клон, чиня прерванный checkout")]
     public async Task Clone_skips_when_target_already_git_repo()
     {
         _fx.OnRun(_ => GitHubCliProviderFixture.Ok(string.Empty));
@@ -100,7 +91,10 @@ public class GitHubCliProviderTests
         try
         {
             await _fx.Provider.CloneRepositoryAsync("alice", "throne", path, CloneCheckout.None, default);
-            _fx.Calls.Should().BeEmpty("папка уже содержит .git — gh repo clone не должен вызываться");
+
+            _fx.Calls.Should().ContainSingle(
+                "папка уже содержит .git — gh repo clone не должен вызываться, но целостность проверяется")
+                .Which.Arguments.Should().BeEquivalentTo(["-C", path, "status", "--porcelain"]);
         }
         finally
         {
@@ -117,7 +111,8 @@ public class GitHubCliProviderTests
         try
         {
             await _fx.Provider.CloneRepositoryAsync("alice", "throne", path, CloneCheckout.None, default);
-            _fx.Calls.Single().Arguments.Should()
+            var mainClone = _fx.Calls.Single(c => c.FileName == "gh" && !GitHubCliProviderFixture.IsCacheBareCloneCall(c));
+            mainClone.Arguments.Should()
                 .ContainInOrder("repo", "clone", "alice/throne", path, "--", "--filter=blob:none");
         }
         finally

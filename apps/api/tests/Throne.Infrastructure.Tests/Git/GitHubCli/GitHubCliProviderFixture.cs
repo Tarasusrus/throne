@@ -22,7 +22,15 @@ internal sealed class GitHubCliProviderFixture
         var invoker = new GhCliInvoker(Launcher, options);
         var listExec = new GhRepoListExecutor(invoker);
         var searcher = new GhRepoSearcher(invoker, listExec);
-        var actions = new GhRepoActions(invoker, new GitCheckoutRunner(Launcher));
+        // Fresh GUID root per fixture instance: the cache is always "cold" (Directory.Exists
+        // false) unless a test explicitly pre-creates the mirror path, and never touches the
+        // real ~/.throne/git-cache on the machine running the tests.
+        CacheRoot = Path.Combine(Path.GetTempPath(), $"throne-git-cache-test-{Guid.NewGuid():N}");
+        var objectCache = new GitObjectCacheSync(
+            Launcher,
+            Options.Create(new GitObjectCacheOptions { Root = CacheRoot }),
+            NullLogger<GitObjectCacheSync>.Instance);
+        var actions = new GhRepoActions(invoker, new GitCheckoutRunner(Launcher), objectCache);
         var probe = new GhAuthProbe(invoker);
         var threadsReader = new GhReviewThreadsReader(invoker, NullLogger<GhReviewThreadsReader>.Instance);
         var prActions = new GhPullRequestActions(invoker, threadsReader);
@@ -35,6 +43,8 @@ internal sealed class GitHubCliProviderFixture
     public IProcessLauncher Launcher { get; }
 
     public GitHubCliProvider Provider { get; }
+
+    public string CacheRoot { get; }
 
     public List<ProcessRunRequest> Calls { get; } = new();
 
@@ -57,4 +67,12 @@ internal sealed class GitHubCliProviderFixture
 
     public static bool IsApiCall(ProcessRunRequest req) =>
         req.Arguments.Count > 0 && req.Arguments[0] == "api";
+
+    /// <summary>The <c>gh repo clone ... -- --bare</c> call <see cref="GitObjectCacheSync"/> issues to prime the cache.</summary>
+    public static bool IsCacheBareCloneCall(ProcessRunRequest req) =>
+        req.Arguments.Contains("--bare");
+
+    /// <summary>Where <see cref="GitObjectCacheSync"/> resolves the <c>owner/repo</c> mirror for this fixture.</summary>
+    public string CacheMirrorPath(string owner, string repo) =>
+        GitObjectCachePathLayout.Compute(CacheRoot, "github.com", owner, repo);
 }

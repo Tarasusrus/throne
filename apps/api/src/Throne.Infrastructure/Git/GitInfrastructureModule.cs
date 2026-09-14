@@ -21,6 +21,7 @@ internal static class GitInfrastructureModule
         var gitlabCliBuilder = services.AddOptions<GitLabCliOptions>();
         var prSyncBuilder = services.AddOptions<PullRequestSyncOptions>();
         var cloneRunnerBuilder = services.AddOptions<CloneRunnerOptions>();
+        var gitObjectCacheBuilder = services.AddOptions<GitObjectCacheOptions>();
         if (configuration is not null)
         {
             workspaceBuilder.Bind(configuration.GetSection(WorkspaceOptions.SectionName));
@@ -28,6 +29,7 @@ internal static class GitInfrastructureModule
             gitlabCliBuilder.Bind(configuration.GetSection(GitLabCliOptions.SectionName));
             prSyncBuilder.Bind(configuration.GetSection(PullRequestSyncOptions.SectionName));
             cloneRunnerBuilder.Bind(configuration.GetSection(CloneRunnerOptions.SectionName));
+            gitObjectCacheBuilder.Bind(configuration.GetSection(GitObjectCacheOptions.SectionName));
         }
 
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<PullRequestSyncOptions>>().Value);
@@ -43,6 +45,7 @@ internal static class GitInfrastructureModule
         services.AddSingleton<ILocalGitWorkspaceSync, LocalGitWorkspaceSync>();
         services.AddSingleton<GitCheckoutRunner>();
         services.AddSingleton<IRepositoryBlobReader, LocalGitBlobReader>();
+        services.AddSingleton<GitObjectCacheSync>();
         services.AddSingleton<GhCliInvoker>();
         services.AddSingleton<GhRepoListExecutor>();
         services.AddSingleton<GhRepoSearcher>();

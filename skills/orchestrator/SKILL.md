@@ -94,7 +94,10 @@ The executor's `work` instruction already tells it to push that branch and to wr
 its own body as `## Отчёт` — that report, not the chat, is what you read at acceptance.
 
 An intent outside your tag is refused before any HTTP call. A live session is not a failure: `run`
-prints «уже работает» and exits 0. `stop` kills the session and is idempotent.
+prints «уже работает» and exits 0. The exception is an executor that came back — its intent is in
+`awaiting_operator` but its session is still alive: `run` kills that session first and starts a
+fresh one, so a rework reads the updated body instead of bouncing off «уже работает». `stop` kills
+the session and is idempotent.
 
 Start executors **one at a time** and wait for each to come back. The spawn is synchronous (it waits
 for repository clones, up to five minutes) and the vendor trust file is shared, so parallel launches
@@ -201,10 +204,11 @@ change code and does not push. Wait for it with `watch` like for any executor, t
 verdict: `THRONE_INTENT_ID=<review id> skills/intent/bin/throne-intent get`.
 
 Each `review` call creates a fresh review intent — a verdict belongs to one state of the branch, and
-a re-run after rework gets its own. After you have read the verdict, leave the review intent where it
-is: it stays in `awaiting_operator` as the record of that round, `watch` no longer lists it, and its
-id goes into your journal next to the decision. You do not change its status — statuses are the
-operator's, who closes review intents when tidying the tag.
+a re-run after rework gets its own. After you have read the verdict, put the review id into your
+journal next to the decision and leave the intent alone: the CLI closes it for you. The next
+`review` of the same child closes every earlier review intent of that child before creating its own,
+and `accept` closes the remaining ones together with the child. Closed means `done`: the verdict stays
+readable, the server kills the session and cleans the workspace.
 
 ## Accepting their work
 
@@ -219,9 +223,13 @@ reviewer's verdict, not on the executor's report. The sequence:
 3. Let the CLI do the deterministic part:
 
 ```bash
-skills/orchestrator/bin/throne-orchestrator accept --repo <abs path to clone> --branch <name> \
+skills/orchestrator/bin/throne-orchestrator accept --intent <child> --repo <abs path to clone> \
   --check "<test command>"
 ```
+
+The branch comes from the child's `## Ветка` — the same parse `review` uses, so there is one source
+for it. `--branch <name>` instead of `--intent` is the bare merge without Throne — it closes nothing,
+so it is not your acceptance path.
 
 `accept` refuses a dirty tree or unpushed local commits on the main branch (65), then fetches,
 resets the local main branch to `origin/<main>` (pass `--into` when origin has no default branch;
@@ -234,8 +242,13 @@ conflict (unrelated histories, a hook) exits 1 with git's own output — a rebas
 read it. Re-running on an already merged branch is a no-op that prints «уже влито». The executor's
 branch is never touched.
 
-4. Accepted: journal it (`YYYY-MM-DD — принято <branch>. Ревью: <review id>. Интенты: <child>`),
-   move the child out of `## В работе`, take the next statement of work.
+Exit 0 (merged, or already merged) is also the cleanup: `accept` moves the child and its open review
+intents to `done`, and the server kills their sessions and cleans their workspaces. A non-zero exit
+closes nothing — the child stays open for the rework.
+
+4. Accepted: the child is already closed by `accept`. Journal it (`YYYY-MM-DD — принято <branch>.
+   Ревью: <review id>. Интенты: <child>`), move the child out of `## В работе`, take the next
+   statement of work. Nothing of an accepted task stays open behind you.
    Not accepted (verdict `не принято`, or `accept` returned 66–68): append the reviewer's findings
    — DoD lines without evidence, defects with file and line — to the child intent and `run` it
    again; after it comes back, `review` again. Do not finish the work yourself, and do not carry it
@@ -273,7 +286,8 @@ so recent entries stay verbatim and older ones get folded into a summary line.
 `skills/orchestrator/tests/test_run_effort.py` property-tests the launch policy: no payload
 carries a forbidden model×effort pair, omitted flags send the policy defaults, forbidden pairs are
 refused before any HTTP call; `test_review_body.py` — how `review` cuts the review intent body
-out of the child and that its payload runs `verify` (both need `pytest` + `hypothesis`):
+out of the child and that its payload runs `verify`; `test_hygiene.py` — that `accept`/`review`
+close what they finished and `run` restarts a returned executor (all need `pytest` + `hypothesis`):
 
 ```bash
 python3 -m pytest skills/orchestrator/tests -q
@@ -292,7 +306,9 @@ The script reads two variables from the environment. A Throne-spawned session ha
 - If your own tag's repository is Throne itself, run `scripts/check-deploy.sh` before spawning any
   executor; on drift, reinstall with `scripts/install-local.sh` first. A stale local instance hands
   every executor old prompts and old skills without anyone noticing.
-- Do not write intent status from the agent. Throne derives status from session hooks.
+- Do not write intent status by hand. Throne derives status from session hooks; the only statuses
+  the orchestrator sets are the `done` that `accept` and `review` write for what you accepted or
+  what a new round replaced. `reject`, `fridge` and everything else stay the operator's.
 - An orchestrator intent carries exactly one tag. Several tags is a broken setup — the CLI refuses
   instead of picking one.
 - Every launch stays within the launch policy (effort `low`/`medium`, review off the strongest

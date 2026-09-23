@@ -14,7 +14,8 @@ Usage:
   throne-orchestrator review --intent ID [--vendor V] [--model M] [--effort E]
   throne-orchestrator stop --intent ID
   throne-orchestrator watch [--wait] [--timeout SECONDS]
-  throne-orchestrator accept --repo PATH --branch NAME [--into BRANCH] [--check CMD]
+  throne-orchestrator accept --intent ID --repo PATH [--into BRANCH] [--check CMD]
+  throne-orchestrator accept --branch NAME --repo PATH [--into BRANCH] [--check CMD]
 
 list — интенты тега текущего интента: id, статус, заголовок, карточки трекера.
 Тег берётся из собственного интента, аргументом его не задают.
@@ -40,6 +41,9 @@ review — поднять независимого ревьюера на вет�
 `intent`. Флаги --vendor/--model/--effort — как у run. Один ревьюер за раз.
 Печатает id ревью-интента первой строкой.
 
+run на задаче в awaiting_operator (исполнитель вернулся, его сессия ещё жива)
+сначала гасит прошлую сессию: возврат на доработку — новый запуск, а не «уже работает».
+
 stop — погасить сессию исполнителя. Идемпотентно.
 
 watch — картина по исполнителям: у кого живая сессия, кто ушёл в awaiting_operator
@@ -51,7 +55,11 @@ watch — картина по исполнителям: у кого живая �
 лимиту и выход из неё изменением не считаются. Истёкший таймаут — не ошибка.
 
 accept — детерминированная часть приёмки ветки исполнителя в клоне оркестратора:
-fetch, подтянуть основную ветку, слить --no-ff, прогнать --check, запушить.
+ветка из `## Ветка` задачи, fetch, подтянуть основную ветку, слить --no-ff,
+прогнать --check, запушить. На коде 0 задача и её ревью-интенты уходят в done —
+сервер гасит их сессии и чистит воркспейсы. Ненулевой код ничего не закрывает.
+--branch вместо --intent — только слияние, без Throne и без закрытия.
+review новым раундом так же закрывает прошлые ревью-интенты задачи.
 Ревью diff против DoD — до вызова, руками. Коды выхода называют причину:
   0  влито (или уже было влито — no-op)
   65 рабочее дерево не чистое или на основной ветке незапушенные коммиты — ничего не тронуто
@@ -184,6 +192,23 @@ assert_own_tag() {
   printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" assert-tag "${tag}" "${target}"
 }
 
+# Закрыть интент: сервер на done сам гасит tmux-сессию и чистит воркспейс
+# (ADR-0026 §8), отдельный kill не нужен.
+close_intent() {
+  local id="$1" reason="$2"
+  http_post_or_fail "/api/v1/intents/${id}/status" \
+    "$(python3 "${HERE}/_orchestrator.py" status-payload done "${reason}")"
+  echo "${id}: закрыт (done) — ${reason}"
+}
+
+# Незакрытые ревью-интенты задачи, чей JSON передан первым аргументом, — в done.
+close_reviews() {
+  local intent_json="$1" reason="$2" rid
+  for rid in $(printf '%s' "${intent_json}" | python3 "${HERE}/_orchestrator.py" open-reviews); do
+    close_intent "${rid}" "${reason}"
+  done
+}
+
 # Запрещённая пара модель×effort отбивается здесь — до assert_own_tag и до preview,
 # то есть до первого HTTP-вызова команды, а не после потраченного round-trip.
 # Аргументы: mode vendor model effort.
@@ -221,6 +246,12 @@ cmd_run() {
   vendor="$(resolve_vendor "${vendor}")"
   check_launch work "${vendor}" "${model}" "${effort}"
   assert_own_tag "${target}"
+  # Исполнитель вернулся, а его сессия жива — иначе run ответил бы «уже работает» и
+  # замечания ревью до него не дошли бы. Прошлый проход гасим, запускаем заново.
+  if [[ "$(printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" intent-field status)" == "awaiting_operator" ]]; then
+    http_post_or_fail "/api/v1/intents/${target}/terminal/kill" '{}'
+    echo "${target}: прошлая сессия погашена перед перезапуском"
+  fi
 
   spawn_session "${target}" work "${vendor}" "${model}" "${effort}"
 }
@@ -276,12 +307,16 @@ cmd_review() {
   tag="$(own_tag)"
   http_get "/api/v1/intents/${target}"
   printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" assert-tag "${tag}" "${target}"
+  local child_json="${HTTP_BODY}"
 
   # Тело ревью-интента — ровно три секции постановки; всё остальное ревьюеру не положено.
   local body_file
   body_file="$(mktemp)"
   printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" review-body > "${body_file}" \
     || { rm -f "${body_file}"; exit 64; }
+
+  # Новый раунд заменяет прошлые: их вердикты остаются читаемыми в done, сессии гаснут.
+  close_reviews "${child_json}" "раунд ревью заменён новым"
 
   local create_payload review_id
   create_payload="$(python3 "${HERE}/_orchestrator.py" create-payload "${body_file}" "${tag}")"
@@ -397,18 +432,40 @@ accept_fail() {
 }
 
 cmd_accept() {
-  local repo="" branch="" into="" check=""
+  local target="" branch="" repo="" into="" check=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --repo) [[ $# -ge 2 ]] || die "--repo requires a value"; repo="$2"; shift 2 ;;
+      --intent) [[ $# -ge 2 ]] || die "--intent requires a value"; target="$2"; shift 2 ;;
       --branch) [[ $# -ge 2 ]] || die "--branch requires a value"; branch="$2"; shift 2 ;;
+      --repo) [[ $# -ge 2 ]] || die "--repo requires a value"; repo="$2"; shift 2 ;;
       --into) [[ $# -ge 2 ]] || die "--into requires a value"; into="$2"; shift 2 ;;
       --check) [[ $# -ge 2 ]] || die "--check requires a value"; check="$2"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
   done
+  [[ -n "${target}" || -n "${branch}" ]] || die "accept requires --intent ID"
+  [[ -z "${target}" || -z "${branch}" ]] \
+    || die "--intent и --branch вместе нельзя: ветку задачи даёт её ## Ветка"
   [[ -n "${repo}" ]] || die "accept requires --repo PATH"
-  [[ -n "${branch}" ]] || die "accept requires --branch NAME"
+  # --branch — низкоуровневый режим «только слить», без Throne: ничего не закрывает.
+  if [[ -n "${branch}" ]]; then
+    accept_merge "${repo}" "${branch}" "${into}" "${check}"
+    return 0
+  fi
+  assert_own_tag "${target}"
+  local child_json="${HTTP_BODY}"
+  branch="$(printf '%s' "${child_json}" | python3 "${HERE}/_orchestrator.py" branch-of)"
+
+  # accept_fail выходит сам, так что сюда доходим только с влитой веткой.
+  accept_merge "${repo}" "${branch}" "${into}" "${check}"
+  close_reviews "${child_json}" "задача принята"
+  if [[ "$(printf '%s' "${child_json}" | python3 "${HERE}/_orchestrator.py" intent-field status)" != "done" ]]; then
+    close_intent "${target}" "принято и влито: ${branch}"
+  fi
+}
+
+accept_merge() {
+  local repo="$1" branch="$2" into="$3" check="$4"
   git -C "${repo}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die "не git-репозиторий: ${repo}"
 

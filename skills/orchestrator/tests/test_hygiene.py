@@ -180,6 +180,16 @@ class TestAcceptCloses:
         assert env.closed() == []
 
 
+    def test_merge_message_passes_repo_commit_msg_hook(self, tmp_path, repo):
+        # Как scripts/git-hooks/commit-msg Throne: всё, что не «Merge …», без трейлеров — отказ.
+        hook = repo / ".git" / "hooks" / "commit-msg"
+        hook.write_text('#!/bin/sh\ncase "$(head -1 "$1")" in "Merge "*) exit 0 ;; esac\nexit 1\n')
+        hook.chmod(0o755)
+        env = Env(tmp_path, _child())
+        result = env.run("accept", "--intent", "child", "--repo", str(repo))
+        assert result.returncode == 0, result.stderr
+        assert env.closed() == ["child"]
+
     def test_closing_kills_the_session_itself(self, tmp_path, repo):
         env = Env(tmp_path, _child())
         result = env.run("accept", "--intent", "child", "--repo", str(repo))

@@ -519,9 +519,11 @@ accept_merge() {
     return 0
   fi
 
+  # «Merge <ветка>» — формат самого git: commit-msg хуки (в Throne — трейлеры
+  # Problem/Decision/Task) пропускают его как слияние, а «merge: …» отбивают.
   local before merge_log conflicts
   before="$(git -C "${repo}" rev-parse HEAD)"
-  if ! merge_log="$(git -C "${repo}" merge -q --no-ff --no-edit -m "merge: ${branch}" "origin/${branch}" 2>&1)"; then
+  if ! merge_log="$(git -C "${repo}" merge -q --no-ff --no-edit -m "Merge ${branch}" "origin/${branch}" 2>&1)"; then
     conflicts="$(git -C "${repo}" diff --name-only --diff-filter=U 2>/dev/null || true)"
     git -C "${repo}" merge --abort 2>/dev/null || git -C "${repo}" reset -q --hard "${before}"
     git -C "${repo}" clean -fdq

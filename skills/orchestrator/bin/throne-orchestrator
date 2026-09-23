@@ -27,8 +27,9 @@ run — поднять work-сессию исполнителя на интен�
 ALLOWED_EFFORTS в _orchestrator.py): effort только low|medium, у review ещё и
 не сильнейшая модель вендора. Без флагов подставляется дефолт политики
 (claude: sonnet + medium), а не серверный opus + high. Вендор без --vendor
-берётся из настроек сервера. Запрещённая пара отбивается до единого HTTP-вызова.
-opencode под политику не попадает: оси effort у него нет.
+берётся из настроек сервера. Запрещённые флаги отбиваются до единого HTTP-вызова,
+вендор вне политики — сразу после чтения настроек, до создания чего-либо.
+У opencode нет оси effort: модель ему не подставляется, потолок effort общий.
 
 review — поднять независимого ревьюера на ветку исполнителя. Из тела
 исполнителя вырезаются ровно три секции — `## Ветка`, `## Definition of Done`,
@@ -192,6 +193,17 @@ check_launch() {
     || die "${launch_err}"
 }
 
+# Политика выбирает модель по вендору, поэтому вендор нужен явно — без флага
+# берём тот же дефолт, что взял бы сервер. Печатает вендора.
+resolve_vendor() {
+  if [[ -n "$1" ]]; then
+    printf '%s' "$1"
+    return 0
+  fi
+  http_get "/api/v1/settings/terminal"
+  printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" default-vendor
+}
+
 cmd_run() {
   local target="" vendor="" model="" effort=""
   while [[ $# -gt 0 ]]; do
@@ -206,6 +218,8 @@ cmd_run() {
   [[ -n "${target}" ]] || die "run requires --intent ID"
 
   check_launch work "${vendor}" "${model}" "${effort}"
+  vendor="$(resolve_vendor "${vendor}")"
+  check_launch work "${vendor}" "${model}" "${effort}"
   assert_own_tag "${target}"
 
   spawn_session "${target}" work "${vendor}" "${model}" "${effort}"
@@ -216,12 +230,6 @@ cmd_run() {
 # выглядит успехом. Поэтому preview обязателен.
 spawn_session() {
   local target="$1" mode="$2" vendor="$3" model="$4" effort="$5"
-  # Политика запуска выбирает модель по вендору, поэтому вендор нужен явно —
-  # без флага берём тот же дефолт, что взял бы сервер.
-  if [[ -z "${vendor}" ]]; then
-    http_get "/api/v1/settings/terminal"
-    vendor="$(printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" default-vendor)"
-  fi
   http_post_or_fail "/api/v1/intents/${target}/terminal/preview" "{\"mode\":\"${mode}\"}"
   local payload
   payload="$(printf '%s' "${HTTP_BODY}" \
@@ -259,6 +267,9 @@ cmd_review() {
     esac
   done
   [[ -n "${target}" ]] || die "review requires --intent ID"
+  check_launch verify "${vendor}" "${model}" "${effort}"
+  # Вендор — до создания ревью-интента: отказ после create оставил бы сироту.
+  vendor="$(resolve_vendor "${vendor}")"
   check_launch verify "${vendor}" "${model}" "${effort}"
 
   local tag

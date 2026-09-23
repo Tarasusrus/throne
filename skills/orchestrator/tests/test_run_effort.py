@@ -181,6 +181,8 @@ out = args[args.index("-o") + 1]
 url = [a for a in args if a.startswith("http")][0]
 path = url.split("://", 1)[1].split("/", 1)[1]
 method = "POST" if "-X" in args else "GET"
+with open(os.environ["FAKE_CURL_LOG"], "a") as log:
+    log.write(method + " /" + path + "\n")
 if method == "GET" and path == "api/v1/intents/orch":
     status, body = 200, {"id": "orch", "tags": [{"name": "t"}]}
 elif method == "GET" and path == "api/v1/intents/child":
@@ -203,24 +205,29 @@ sys.stdout.write(str(status))
 '''
 
 
+def _fake_env(tmp_path, default_vendor):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    curl = bin_dir / "curl"
+    curl.write_text(FAKE_CURL)
+    curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
+    return {
+        "PATH": str(bin_dir) + ":/usr/bin:/bin:/usr/local/bin",
+        "THRONE_INTENT_ID": "orch",
+        "THRONE_API_BASE": "http://fake",
+        "FAKE_DEFAULT_VENDOR": default_vendor,
+        "FAKE_RUN_BODY": str(tmp_path / "run.json"),
+        "FAKE_CURL_LOG": str(tmp_path / "calls.log"),
+    }
+
+
 class TestCliSendsPolicyDefaults:
     """Проверяется тело, реально ушедшее в /terminal/run, а не возврат хелпера."""
 
     @pytest.mark.parametrize("vendor,model", [("claude", "sonnet"), ("codex", "gpt-5.6-terra")])
     def test_run_without_flags_sends_policy_defaults_for_server_vendor(self, tmp_path, vendor, model):
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        curl = bin_dir / "curl"
-        curl.write_text(FAKE_CURL)
-        curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
+        env = _fake_env(tmp_path, vendor)
         run_body = tmp_path / "run.json"
-        env = {
-            "PATH": str(bin_dir) + ":/usr/bin:/bin:/usr/local/bin",
-            "THRONE_INTENT_ID": "orch",
-            "THRONE_API_BASE": "http://fake",
-            "FAKE_DEFAULT_VENDOR": vendor,
-            "FAKE_RUN_BODY": str(run_body),
-        }
         result = subprocess.run(
             [str(SCRIPT_PATH), "run", "--intent", "child"],
             capture_output=True, text=True, env=env, timeout=20,
@@ -228,3 +235,14 @@ class TestCliSendsPolicyDefaults:
         assert result.returncode == 0, result.stderr
         sent = json.loads(run_body.read_text())
         assert (sent["vendor"], sent["model"], sent["effort"]) == (vendor, model, "medium")
+
+    def test_review_with_unpoliced_default_vendor_creates_nothing(self, tmp_path):
+        env = _fake_env(tmp_path, "gemini")
+        result = subprocess.run(
+            [str(SCRIPT_PATH), "review", "--intent", "child"],
+            capture_output=True, text=True, env=env, timeout=20,
+        )
+        assert result.returncode == 64
+        assert "политике" in result.stderr
+        calls = (tmp_path / "calls.log").read_text().splitlines()
+        assert calls == ["GET /api/v1/settings/terminal"]

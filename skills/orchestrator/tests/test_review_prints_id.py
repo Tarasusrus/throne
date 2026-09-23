@@ -32,6 +32,8 @@ if method == "GET" and path == "api/v1/intents/orch":
 elif method == "GET" and path == "api/v1/intents/child":
     status, body = 200, {"id": "child", "tags": [{"name": "t"}],
                          "text": "## Ветка\nfeat/x\n\n## Definition of Done\n- a\n"}
+elif method == "GET" and path == "api/v1/settings/terminal":
+    status, body = 200, {"default_vendor": "claude"}
 elif method == "POST" and path == "api/v1/intents":
     status, body = 201, {"id": "rev-1"}
 elif method == "POST" and path == "api/v1/intents/rev-1/links":

@@ -62,7 +62,9 @@ lives in `skills/orchestrator/bin/_orchestrator.py` (`ALLOWED_EFFORTS`, `VENDOR_
 - a review (`verify`) never runs on the vendor's strongest model (`opus` for claude);
 - flags omitted → the policy default (claude: `sonnet` + `medium`), never the server's own default,
   which is the strongest model at `high`; `--vendor` omitted → the server's default vendor;
-- a forbidden pair is refused before any HTTP call; `opencode` has no effort axis and is not policed.
+- forbidden flags are refused before any HTTP call; a default vendor outside the table — right after
+  the settings read, before anything is created; `opencode` has no effort axis, so it gets no
+  default model, only the common effort ceiling.
 
 There is no task that needs `high`. Your output is an exhaustive list of instructions: each statement
 of work spells out what to change, where, and how to prove it, so the executor carries it out rather

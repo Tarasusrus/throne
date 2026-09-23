@@ -44,8 +44,7 @@ you need its full text.
 
 ```bash
 skills/orchestrator/bin/throne-orchestrator run --intent <id>
-skills/orchestrator/bin/throne-orchestrator run --intent <id> --vendor claude --model opus
-skills/orchestrator/bin/throne-orchestrator run --intent <id> --vendor claude --model opus --effort high
+skills/orchestrator/bin/throne-orchestrator run --intent <id> --effort low
 skills/orchestrator/bin/throne-orchestrator stop --intent <id>
 ```
 
@@ -54,20 +53,23 @@ first and passes the assembled `system_prompt`/`user_prompt` into the spawn — 
 assemble them on `run`, so skipping the preview would boot an executor with no rules and no task
 while still looking like success.
 
-`--effort` (`low`/`medium`/`high`/`xhigh`) is a launch axis alongside `--model`, not a separate step.
-Omit it and the run payload is untouched — the server picks the vendor's own default. Pass a value
-outside the four tiers and the command refuses before making any HTTP call at all, so a typo never
-burns a preview round-trip. For a vendor whose catalog carries no effort axis (`opencode` today,
-`supports_effort=false`) the server itself drops whatever effort you pass — it never reaches the
-executor's argv — so passing `--effort` there is harmless but has no effect; the command does not
-special-case it.
+### Model and effort: the launch policy
 
-Pick the pair by how much the task can go wrong, not by habit: a mechanical edit (rename, config
-bump, a fix with an obvious one-line cause) is cheapest at a lower model/effort; anything that
-requires judgment under ambiguity — conflict resolution, an architectural fork, a statement of work
-with contradictory acceptance criteria — earns the higher tier. Paying `xhigh` for routine work wastes
-budget for no better outcome; paying `low` for a conflict risks a wrong merge that costs more to undo
-than the tier would have cost to run.
+`--vendor`/`--model`/`--effort` are one launch axis, and the CLI holds it inside a policy — the table
+lives in `skills/orchestrator/bin/_orchestrator.py` (`ALLOWED_EFFORTS`, `VENDOR_MODELS`), not here:
+
+- effort is `low` or `medium` for every role; `high`/`xhigh` are refused;
+- a review (`verify`) never runs on the vendor's strongest model (`opus` for claude);
+- flags omitted → the policy default (claude: `sonnet` + `medium`), never the server's own default,
+  which is the strongest model at `high`; `--vendor` omitted → the server's default vendor;
+- a forbidden pair is refused before any HTTP call; `opencode` has no effort axis and is not policed.
+
+There is no task that needs `high`. Your output is an exhaustive list of instructions: each statement
+of work spells out what to change, where, and how to prove it, so the executor carries it out rather
+than works it out. If a task still seems to need `high`, it is under-decomposed — split it, or take
+the fork out of it: an ambiguity you settle in the journal, an architectural fork you bring to the
+operator, and the executor gets the decision, not the dilemma. Raising the effort instead of
+decomposing is not an option — the CLI will not let you.
 
 A child intent is worth launching only if it is a statement of work. Two sections are mandatory:
 `## Ветка` — the branch the executor works in and pushes when done — and `## Definition of Done` —
@@ -170,7 +172,6 @@ your own `watch` before you act on what the monitor told you.
 
 ```bash
 skills/orchestrator/bin/throne-orchestrator review --intent <child>
-skills/orchestrator/bin/throne-orchestrator review --intent <child> --vendor claude --model opus --effort high
 ```
 
 The executor must not review its own branch, and neither do you — its report tells you what it
@@ -186,7 +187,8 @@ the link or the launch failed, and only then decide whether a fresh `review` is 
 without `## Ветка` or without a non-empty DoD is refused before anything is created; so is a body
 with an unclosed code fence, which would hide those sections — the error names the fence line.
 
-`--vendor`/`--model`/`--effort` work exactly as for `run`. One reviewer at a time, for the same
+`--vendor`/`--model`/`--effort` work as for `run`, under the same policy — and the strongest
+model is refused here on top of the effort ceiling: checking against a DoD is not the place for it. One reviewer at a time, for the same
 reasons as one executor: the spawn is synchronous and the vendor trust file is shared.
 
 The reviewer fetches the branch, reads the diff against the main branch, runs the project's tests
@@ -266,8 +268,9 @@ so recent entries stay verbatim and older ones get folded into a summary line.
 
 ## Tests
 
-`skills/orchestrator/tests/test_run_effort.py` property-tests how `run` assembles the launch
-payload and validates `--effort`; `test_review_body.py` — how `review` cuts the review intent body
+`skills/orchestrator/tests/test_run_effort.py` property-tests the launch policy: no payload
+carries a forbidden model×effort pair, omitted flags send the policy defaults, forbidden pairs are
+refused before any HTTP call; `test_review_body.py` — how `review` cuts the review intent body
 out of the child and that its payload runs `verify` (both need `pytest` + `hypothesis`):
 
 ```bash
@@ -290,6 +293,8 @@ The script reads two variables from the environment. A Throne-spawned session ha
 - Do not write intent status from the agent. Throne derives status from session hooks.
 - An orchestrator intent carries exactly one tag. Several tags is a broken setup — the CLI refuses
   instead of picking one.
+- Every launch stays within the launch policy (effort `low`/`medium`, review off the strongest
+  model). A task that seems to need more is a decomposition defect — split it, never raise the tier.
 - You do not write the task's code yourself. Your output is a statement of work, a launched
   executor, an accepted and merged branch, a decision recorded in your body.
 - Acceptance is yours, not the operator's. The operator sees merged results and architectural forks

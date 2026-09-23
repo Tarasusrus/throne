@@ -252,8 +252,10 @@ class TestReviewRunPayload:
     def test_default_mode_is_still_work(self, preview):
         assert orchestrator.build_run_payload(preview, "", "", "")["mode"] == "work"
 
-    @given(preview=preview_strategy, vendor=st.text(max_size=6), model=st.text(max_size=6),
-           effort=st.sampled_from(["", "low", "high"]))
+    # Пары, разрешённые обеим ролям: запрещённые для ревью проверяет test_run_effort.py.
+    @given(preview=preview_strategy, vendor=st.sampled_from(["claude", "codex", "opencode"]),
+           model=st.sampled_from(["", "sonnet", "haiku", "gpt-5.6-terra"]),
+           effort=st.sampled_from(["", "low", "medium"]))
     def test_mode_is_the_only_difference_between_work_and_verify(self, preview, vendor, model, effort):
         work = orchestrator.build_run_payload(preview, vendor, model, effort)
         verify = orchestrator.build_run_payload(preview, vendor, model, effort, mode="verify")

@@ -103,18 +103,67 @@ def assert_tag(expected: str, target: str) -> None:
 # claude-only "max" сюда намеренно не входит, ось запуска общая для всех вендоров.
 KNOWN_EFFORTS = ("low", "medium", "high", "xhigh")
 
+# Политика запуска исполнителей и ревьюеров — единственный источник правды.
+# Потолок effort один для обеих ролей: задача, которой нужен high, недодекомпозирована —
+# оркестратор дробит её, а не поднимает effort. Ревью вдобавок не идёт на сильнейшей модели.
+ALLOWED_EFFORTS = ("low", "medium")
+DEFAULT_EFFORT = "medium"
+# вендор → (модель по умолчанию, сильнейшая модель). Сильнейшая стоит первой в каталоге
+# сервера (TerminalVendorDescriptors) и она же серверный дефолт вместе с effort=high —
+# поэтому модель и effort в payload шлются всегда, серверному дефолту не доверяем.
+VENDOR_MODELS = {
+    "claude": ("sonnet", "opus"),
+    "codex": ("gpt-5.6-terra", "gpt-5.6-sol"),
+}
+# У opencode нет оси effort, а модель локальная — таблица к нему неприменима.
+UNPOLICED_VENDORS = ("opencode",)
+REVIEW_MODE = "verify"
 
-def validate_effort(value: str) -> None:
-    """Пустая строка — флаг --effort не передан, это валидное состояние."""
-    if value and value not in KNOWN_EFFORTS:
+
+def check_launch(mode: str, vendor: str, model: str, effort: str) -> None:
+    """Отказ на запрещённой паре. Не ходит в сеть: зовётся до первого HTTP-вызова.
+
+    Пустая строка — флаг не передан. Вендор ещё может быть неизвестен (возьмётся из
+    настроек сервера) — тогда сильнейшей считается сильнейшая модель любого вендора.
+    """
+    if effort and effort not in KNOWN_EFFORTS:
         raise ValueError(
-            "неизвестный effort '" + value + "' — допустимо: " + ", ".join(KNOWN_EFFORTS)
+            "неизвестный effort '" + effort + "' — допустимо: " + ", ".join(ALLOWED_EFFORTS)
         )
+    if effort and effort not in ALLOWED_EFFORTS:
+        if mode == REVIEW_MODE:
+            raise ValueError(
+                "effort '" + effort + "' для ревью запрещён — допустимо: "
+                + ", ".join(ALLOWED_EFFORTS)
+            )
+        raise ValueError(
+            "effort '" + effort + "' для задачи запрещён: high effort — признак неверной "
+            "декомпозиции, разбей задачу. Допустимо: " + ", ".join(ALLOWED_EFFORTS)
+        )
+    if vendor and vendor not in VENDOR_MODELS and vendor not in UNPOLICED_VENDORS:
+        raise ValueError(
+            "вендор '" + vendor + "' не описан в политике запуска — допустимо: "
+            + ", ".join(tuple(VENDOR_MODELS) + UNPOLICED_VENDORS)
+        )
+    if mode == REVIEW_MODE and model:
+        strongest = (
+            {VENDOR_MODELS[vendor][1]} if vendor in VENDOR_MODELS
+            else {pair[1] for pair in VENDOR_MODELS.values()}
+        )
+        if model in strongest:
+            raise ValueError(
+                "модель '" + model + "' для ревью запрещена: ревью не идёт на сильнейшей модели"
+            )
 
 
 def build_run_payload(
     preview: dict, vendor: str, model: str, effort: str, mode: str = "work"
 ) -> dict:
+    """vendor обязателен: без него не выбрать модель по умолчанию из политики."""
+    check_launch(mode, vendor, model, effort)
+    if vendor in VENDOR_MODELS:
+        model = model or VENDOR_MODELS[vendor][0]
+        effort = effort or DEFAULT_EFFORT
     payload = {
         "mode": mode,
         # Сервер не пересобирает промпт из id частей — везём собранный текст.
@@ -126,9 +175,8 @@ def build_run_payload(
             for skill in preview["available_skills_for_mode"]
             if skill["selected"] and skill["materializable"]
         ],
+        "vendor": vendor,
     }
-    if vendor:
-        payload["vendor"] = vendor
     if model:
         payload["model"] = model
     if effort:
@@ -138,7 +186,15 @@ def build_run_payload(
 
 def run_payload(vendor: str, model: str, effort: str, mode: str) -> None:
     preview = json.load(sys.stdin)
-    print(json.dumps(build_run_payload(preview, vendor, model, effort, mode), ensure_ascii=False))
+    try:
+        payload = build_run_payload(preview, vendor, model, effort, mode)
+    except ValueError as exc:
+        sys.exit("throne-orchestrator: " + str(exc))
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def default_vendor() -> None:
+    print(json.load(sys.stdin)["default_vendor"])
 
 
 # Ревьюер знает ровно три вещи из постановки исполнителя (ADR-0054 §8): ветку,
@@ -468,11 +524,13 @@ def main() -> None:
         review_body_cmd()
     elif command == "create-payload":
         create_payload(sys.argv[2], sys.argv[3])
-    elif command == "validate-effort":
+    elif command == "check-launch":
         try:
-            validate_effort(sys.argv[2] if len(sys.argv) > 2 else "")
+            check_launch(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
         except ValueError as exc:
             sys.exit(str(exc))
+    elif command == "default-vendor":
+        default_vendor()
     elif command == "run-result":
         run_result(sys.argv[2])
     elif command == "verdict-candidates":

@@ -23,11 +23,13 @@ run — поднять work-сессию исполнителя на интен�
 (сервер сам контекст не собирает), потом run с собранным промптом. Живая сессия —
 не ошибка: команда сообщает «уже работает» и выходит с кодом 0.
 
---effort (low|medium|high|xhigh) — режим рассуждений исполнителя, ось наравне с
---model. Без флага payload не трогается вовсе — сервер сам возьмёт дефолт
-вендора. Неизвестное значение отбивается до единого HTTP-вызова. У вендора без
-оси эффорта (сейчас opencode) сервер сам роняет любой присланный effort — в
-argv исполнителя флаг не долетает; это поведение сервера, не команды.
+--model/--effort — ось запуска, ограниченная политикой (VENDOR_MODELS и
+ALLOWED_EFFORTS в _orchestrator.py): effort только low|medium, у review ещё и
+не сильнейшая модель вендора. Без флагов подставляется дефолт политики
+(claude: sonnet + medium), а не серверный opus + high. Вендор без --vendor
+берётся из настроек сервера. Запрещённые флаги отбиваются до единого HTTP-вызова,
+вендор вне политики — сразу после чтения настроек, до создания чего-либо.
+У opencode нет оси effort: модель ему не подставляется, потолок effort общий.
 
 review — поднять независимого ревьюера на ветку исполнителя. Из тела
 исполнителя вырезаются ровно три секции — `## Ветка`, `## Definition of Done`,
@@ -182,13 +184,24 @@ assert_own_tag() {
   printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" assert-tag "${tag}" "${target}"
 }
 
-# Неизвестный effort отбивается здесь — до assert_own_tag и до preview, то
-# есть до первого HTTP-вызова команды, а не после потраченного round-trip.
-validate_effort() {
-  [[ -n "$1" ]] || return 0
-  local effort_err
-  effort_err="$(python3 "${HERE}/_orchestrator.py" validate-effort "$1" 2>&1)" \
-    || die "${effort_err}"
+# Запрещённая пара модель×effort отбивается здесь — до assert_own_tag и до preview,
+# то есть до первого HTTP-вызова команды, а не после потраченного round-trip.
+# Аргументы: mode vendor model effort.
+check_launch() {
+  local launch_err
+  launch_err="$(python3 "${HERE}/_orchestrator.py" check-launch "$@" 2>&1)" \
+    || die "${launch_err}"
+}
+
+# Политика выбирает модель по вендору, поэтому вендор нужен явно — без флага
+# берём тот же дефолт, что взял бы сервер. Печатает вендора.
+resolve_vendor() {
+  if [[ -n "$1" ]]; then
+    printf '%s' "$1"
+    return 0
+  fi
+  http_get "/api/v1/settings/terminal"
+  printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" default-vendor
 }
 
 cmd_run() {
@@ -204,7 +217,9 @@ cmd_run() {
   done
   [[ -n "${target}" ]] || die "run requires --intent ID"
 
-  validate_effort "${effort}"
+  check_launch work "${vendor}" "${model}" "${effort}"
+  vendor="$(resolve_vendor "${vendor}")"
+  check_launch work "${vendor}" "${model}" "${effort}"
   assert_own_tag "${target}"
 
   spawn_session "${target}" work "${vendor}" "${model}" "${effort}"
@@ -252,7 +267,10 @@ cmd_review() {
     esac
   done
   [[ -n "${target}" ]] || die "review requires --intent ID"
-  validate_effort "${effort}"
+  check_launch verify "${vendor}" "${model}" "${effort}"
+  # Вендор — до создания ревью-интента: отказ после create оставил бы сироту.
+  vendor="$(resolve_vendor "${vendor}")"
+  check_launch verify "${vendor}" "${model}" "${effort}"
 
   local tag
   tag="$(own_tag)"

@@ -305,6 +305,37 @@ def _is_review(item: dict) -> bool:
     return _title(item).startswith(REVIEW_PREFIX)
 
 
+def branch_of(executor_text: str) -> str:
+    """Ветка задачи — из `## Ветка`, тем же разбором, что и у review: источник один."""
+    branch = _branch_name(_split_sections(executor_text).get("Ветка", []))
+    if not branch:
+        raise ValueError("в теле задачи нет имени ветки в секции ## Ветка — нечего принимать")
+    return branch
+
+
+CLOSED_STATUSES = ("done", "reject")
+
+
+def open_reviews(intent: dict) -> list[str]:
+    """Незакрытые ревью-интенты задачи: связь создаёт `review` (ревью → задача),
+    так что у задачи они входящие, с заголовком [REVIEW]."""
+    return [
+        entry["peer"]["id"]
+        for entry in intent.get("links") or []
+        if entry.get("direction") == "incoming"
+        and _is_review(entry["peer"])
+        and entry["peer"]["status"] not in CLOSED_STATUSES
+    ]
+
+
+def status_payload(status: str, reason: str) -> None:
+    print(json.dumps({"status": status, "reason": reason}, ensure_ascii=False))
+
+
+def intent_field(name: str) -> None:
+    print(json.load(sys.stdin)[name])
+
+
 def verdict_candidates(running: set[str], page: list[dict]) -> list[str]:
     """У кого вердикт вообще может быть: ревью-интент встал в awaiting_operator без
     сессии. Только им watch тянет полное тело — в списке лежит обрезок в 140 символов."""
@@ -531,6 +562,17 @@ def main() -> None:
             sys.exit(str(exc))
     elif command == "default-vendor":
         default_vendor()
+    elif command == "branch-of":
+        try:
+            print(branch_of(json.load(sys.stdin)["text"]))
+        except ValueError as exc:
+            sys.exit("throne-orchestrator: " + str(exc))
+    elif command == "open-reviews":
+        print(" ".join(open_reviews(json.load(sys.stdin))))
+    elif command == "status-payload":
+        status_payload(sys.argv[2], sys.argv[3])
+    elif command == "intent-field":
+        intent_field(sys.argv[2])
     elif command == "run-result":
         run_result(sys.argv[2])
     elif command == "verdict-candidates":

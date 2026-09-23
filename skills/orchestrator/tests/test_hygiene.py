@@ -180,6 +180,35 @@ class TestAcceptCloses:
         assert env.closed() == []
 
 
+    def test_closing_kills_the_session_itself(self, tmp_path, repo):
+        env = Env(tmp_path, _child())
+        result = env.run("accept", "--intent", "child", "--repo", str(repo))
+        assert result.returncode == 0, result.stderr
+        paths = [f"{method} {path}" for method, path, _ in env.calls()]
+        # Сервер гасит сессию на done лишь при флаге очистки — не полагаемся на него.
+        assert paths.index("POST /api/v1/intents/child/terminal/kill") < paths.index(
+            "POST /api/v1/intents/child/status")
+
+    def test_empty_branch_is_not_accepted(self, tmp_path, repo):
+        _git(repo, "push", "-q", "origin", "origin/main:refs/heads/feat/empty")
+        child = _child()
+        child["text"] = CHILD_TEXT.replace("feat/x", "feat/empty")
+        env = Env(tmp_path, child)
+        result = env.run("accept", "--intent", "child", "--repo", str(repo))
+        assert result.returncode == 66
+        assert "нет своих коммитов" in result.stderr
+        assert env.closed() == []
+
+    def test_close_failure_after_push_has_its_own_code(self, tmp_path, repo):
+        env = Env(tmp_path, _child(), {"POST /api/v1/intents/child/status": [500, {"error": "boom"}]})
+        result = env.run("accept", "--intent", "child", "--repo", str(repo))
+        assert result.returncode == 70
+        # Ветка при этом влита — повтор accept будет no-op слиянием.
+        _git(repo, "fetch", "-q", "origin")
+        merged = subprocess.run(["git", "merge-base", "--is-ancestor", "origin/feat/x", "origin/main"],
+                                cwd=repo, capture_output=True)
+        assert merged.returncode == 0
+
     def test_bare_branch_mode_merges_without_throne(self, tmp_path, repo):
         env = Env(tmp_path, _child())
         result = env.run("accept", "--branch", "feat/x", "--repo", str(repo))

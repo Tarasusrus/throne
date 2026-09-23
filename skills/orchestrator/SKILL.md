@@ -208,7 +208,7 @@ a re-run after rework gets its own. After you have read the verdict, put the rev
 journal next to the decision and leave the intent alone: the CLI closes it for you. The next
 `review` of the same child closes every earlier review intent of that child before creating its own,
 and `accept` closes the remaining ones together with the child. Closed means `done`: the verdict stays
-readable, the server kills the session and cleans the workspace.
+readable, the session is killed, the workspace cleaned by the server.
 
 ## Accepting their work
 
@@ -235,16 +235,18 @@ so it is not your acceptance path.
 resets the local main branch to `origin/<main>` (pass `--into` when origin has no default branch;
 `main` and `origin/main` mean the same), merges the executor's branch `--no-ff`, runs `--check`
 inside the merged tree, and pushes. Every failure has its own exit code and leaves the main branch
-exactly where origin has it: 66 — the branch was never pushed; 67 — merge conflict, the conflicting
+exactly where origin has it: 66 — the branch was never pushed, or carries no commits of its own; 67 — merge conflict, the conflicting
 files are listed on stderr for the executor; 68 — the check is red (the merge is rolled back, the
 check's leftovers cleaned); 69 — the push was rejected (retry). A merge failure that is not a
 conflict (unrelated histories, a hook) exits 1 with git's own output — a rebase will not fix it, so
 read it. Re-running on an already merged branch is a no-op that prints «уже влито». The executor's
 branch is never touched.
 
-Exit 0 (merged, or already merged) is also the cleanup: `accept` moves the child and its open review
-intents to `done`, and the server kills their sessions and cleans their workspaces. A non-zero exit
-closes nothing — the child stays open for the rework.
+Exit 0 (merged, or already merged) is also the cleanup: `accept` kills the sessions of the child and
+of its open review intents and moves them to `done`; the server cleans their workspaces (per the
+intent's cleanup-on-done flag, on by default). A failed merge closes nothing — the child stays open
+for the rework. 70 is the one exit that comes after the push: the branch is merged but closing
+failed; run `accept` again — the merge is a no-op and the closing finishes.
 
 4. Accepted: the child is already closed by `accept`. Journal it (`YYYY-MM-DD — принято <branch>.
    Ревью: <review id>. Интенты: <child>`), move the child out of `## В работе`, take the next

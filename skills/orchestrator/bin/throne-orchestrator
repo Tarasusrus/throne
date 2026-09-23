@@ -63,10 +63,11 @@ review новым раундом так же закрывает прошлые �
 Ревью diff против DoD — до вызова, руками. Коды выхода называют причину:
   0  влито (или уже было влито — no-op)
   65 рабочее дерево не чистое или на основной ветке незапушенные коммиты — ничего не тронуто
-  66 ветка не запушена на origin — исполнитель не сдал работу
+  66 ветка не запушена на origin или без своих коммитов — исполнитель не сдал работу
   67 конфликт слияния — вернуть исполнителю на ребейз
   68 --check красный — вернуть исполнителю, слияние откачено
   69 push отклонён — локальная ветка возвращена к origin, повторить
+  70 (--intent) ветка влита, но задачу закрыть не удалось — повторить accept
 USAGE
 }
 
@@ -192,10 +193,12 @@ assert_own_tag() {
   printf '%s' "${HTTP_BODY}" | python3 "${HERE}/_orchestrator.py" assert-tag "${tag}" "${target}"
 }
 
-# Закрыть интент: сервер на done сам гасит tmux-сессию и чистит воркспейс
-# (ADR-0026 §8), отдельный kill не нужен.
+# Закрыть интент в done. Сессию гасим сами: сервер делает это на done только при
+# включённом у интента cleanup_local_state_on_done (ADR-0026 §8), а сессия не должна
+# пережить закрытие ни при каком флаге. Воркспейс чистит сервер — по тому же флагу.
 close_intent() {
   local id="$1" reason="$2"
+  http_post_or_fail "/api/v1/intents/${id}/terminal/kill" '{}'
   http_post_or_fail "/api/v1/intents/${id}/status" \
     "$(python3 "${HERE}/_orchestrator.py" status-payload done "${reason}")"
   echo "${id}: закрыт (done) — ${reason}"
@@ -424,6 +427,7 @@ ACCEPT_NOT_PUSHED=66
 ACCEPT_CONFLICT=67
 ACCEPT_CHECK_FAILED=68
 ACCEPT_PUSH_REJECTED=69
+ACCEPT_CLOSE_FAILED=70
 
 accept_fail() {
   local code="$1"; shift
@@ -458,10 +462,15 @@ cmd_accept() {
 
   # accept_fail выходит сам, так что сюда доходим только с влитой веткой.
   accept_merge "${repo}" "${branch}" "${into}" "${check}"
-  close_reviews "${child_json}" "задача принята"
-  if [[ "$(printf '%s' "${child_json}" | python3 "${HERE}/_orchestrator.py" intent-field status)" != "done" ]]; then
-    close_intent "${target}" "принято и влито: ${branch}"
-  fi
+  # Ветка уже в основной: провал закрытия — не «не принято», а свой код. Повтор accept
+  # даст no-op слияние и доделает закрытие.
+  (
+    close_reviews "${child_json}" "задача принята"
+    if [[ "$(printf '%s' "${child_json}" | python3 "${HERE}/_orchestrator.py" intent-field status)" != "done" ]]; then
+      close_intent "${target}" "принято и влито: ${branch}"
+    fi
+  ) || accept_fail "${ACCEPT_CLOSE_FAILED}" \
+    "${branch} влита, но задачу закрыть не удалось — повтори accept, слияние будет no-op"
 }
 
 accept_merge() {
@@ -499,6 +508,13 @@ accept_merge() {
     || accept_fail "${ACCEPT_NOT_PUSHED}" "origin/${branch} нет — исполнитель не запушил ветку"
 
   if git -C "${repo}" merge-base --is-ancestor "origin/${branch}" "origin/${into}"; then
+    # Пустая ветка (от основной, без своих коммитов) — тоже предок, но не влитая работа.
+    # accept вливает --no-ff, поэтому сданная работа на first-parent цепочке не лежит.
+    local tip
+    tip="$(git -C "${repo}" rev-parse "origin/${branch}")"
+    if [[ "$(git -C "${repo}" rev-list --first-parent "origin/${into}" | grep -cx "${tip}" || true)" != "0" ]]; then
+      accept_fail "${ACCEPT_NOT_PUSHED}" "в ${branch} нет своих коммитов — исполнитель не сдал работу"
+    fi
     echo "уже влито: ${branch} → ${into}"
     return 0
   fi
